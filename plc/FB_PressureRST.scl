@@ -1,0 +1,148 @@
+FUNCTION_BLOCK "FB_PressureRST"
+TITLE = Polynomial RST head-pressure controller with anti-windup
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : chad416
+VERSION : 0.1
+//  Two-degree-of-freedom RST controller (pole placement), called every 100 ms:
+//    Am r* = Bm r                       reference model (tracking)
+//    Ao v  = T r* - R y + (Ao - S) us   anti-windup in observer form
+//    u     = sat(v + Ff)                rate and range limits
+//  - With no saturation this is S u = T r* - R y.
+//  - us is the controller's share of the applied output (u - Ff).
+//  - References: Astrom & Wittenmark, Computer-Controlled Systems, 3rd ed., Ch. 5 and
+//    Sec. 9.4; Landau & Zito, Digital Control Systems, Ch. 2-3.
+//  - The coefficients come from xtrude.control.design_rst (scripts/run_study.py writes
+//    them to plc/tia/Params_OB_DB.scl).
+//  - Polynomials are stored in ascending powers of q^-1, index 0 = constant term.
+//    S and Ao must be monic (S[0] = Ao[0] = 1).
+//  - The float64 reference is xtrude.control.RSTRuntime.
+   VAR_INPUT
+      Enable : Bool;   // FALSE: Out := TrackValue, histories track (bumpless start)
+      Setpoint : Real;   // bar
+      Pv : Real;   // bar
+      Ff : Real;   // rpm
+      TrackValue : Real;   // rpm
+      OutLo : Real := 2.0;
+      OutHi : Real := 45.0;
+      RateMax : Real := 0.5;   // rpm per call
+   END_VAR
+
+   VAR_OUTPUT
+      Out : Real;   // screw speed setpoint, rpm
+      AtLimit : Bool;
+   END_VAR
+
+   VAR
+      nR : Int;   // degree of R (<= 7)
+      nS : Int;
+      nT : Int;
+      nAo : Int;
+      R : Array[0..7] of Real;
+      S : Array[0..7] of Real;
+      T : Array[0..7] of Real;
+      Ao : Array[0..7] of Real;
+      Bm : Array[0..2] of Real;   // reference model numerator (degree 0 used)
+      Am : Array[0..2] of Real;   // reference model denominator, Am[0] = 1
+      hR : Array[0..7] of Real;   // r*(k-i)
+      hY : Array[0..7] of Real;   // y(k-i)
+      hU : Array[0..7] of Real;   // us(k-1-i)
+      hV : Array[0..7] of Real;   // v(k-1-i)
+      hRm : Array[0..2] of Real;   // r(k-i), reference model input
+      hRo : Array[0..2] of Real;   // r*(k-1-i), reference model output
+      sOutPrev : Real;
+   END_VAR
+
+   VAR_TEMP
+      i : Int;
+      tRs : Real;
+      tAcc : Real;
+      tU : Real;
+      tSumR : Real;
+      tDev : Real;
+   END_VAR
+
+
+BEGIN
+	REGION Track
+	    IF NOT #Enable THEN
+	        FOR #i := 0 TO 7 DO
+	            #hR[#i] := #Setpoint;
+	            #hY[#i] := #Pv;
+	            #hU[#i] := #TrackValue;
+	            #hV[#i] := #TrackValue;
+	        END_FOR;
+	        FOR #i := 0 TO 2 DO
+	            #hRm[#i] := #Setpoint;
+	            #hRo[#i] := #Setpoint;
+	        END_FOR;
+	        #sOutPrev := #TrackValue;
+	        #Out := #TrackValue;
+	        #AtLimit := FALSE;
+	        RETURN;
+	    END_IF;
+	END_REGION
+
+	REGION ReferenceModel
+	    FOR #i := 2 TO 1 BY -1 DO
+	        #hRm[#i] := #hRm[#i - 1];
+	    END_FOR;
+	    #hRm[0] := #Setpoint;
+	    #tRs := #Bm[0] * #hRm[0] + #Bm[1] * #hRm[1] + #Bm[2] * #hRm[2]
+	            - #Am[1] * #hRo[0] - #Am[2] * #hRo[1];
+	    FOR #i := 2 TO 1 BY -1 DO
+	        #hRo[#i] := #hRo[#i - 1];
+	    END_FOR;
+	    #hRo[0] := #tRs;
+	END_REGION
+
+	REGION Histories
+	    FOR #i := 7 TO 1 BY -1 DO
+	        #hR[#i] := #hR[#i - 1];
+	        #hY[#i] := #hY[#i - 1];
+	    END_FOR;
+	    #hR[0] := #tRs;
+	    #hY[0] := #Pv;
+	END_REGION
+
+	REGION Law
+	    // Structural form that keeps the two identities the design guarantees:
+	    //   T(1) = R(1)  (no static offset)   and   S(1) = 0  (integral action).
+	    // In Real (float32), the rounded coefficients break both. R(1) is about 1e-3,
+	    // while T has alternating coefficients of order 1e2. The direct sum then leaves
+	    // a static offset of several bar. So we compute
+	    //   sum T[i] r[i] = R(1) r[0] + sum T[i] (r[i] - r[0])
+	    //   sum R[i] y[i] = R(1) y[0] + sum R[i] (y[i] - y[0])
+	    //   sum_{i>=1} (Ao[i] - S[i]) us[i-1] - Ao[i] v[i-1]
+	    //       = us[0] + sum (Ao[i] - S[i]) (us[i-1] - us[0]) - Ao[i] (v[i-1] - us[0])
+	    // with R(1) taken as one sum, so both terms use the same number, and
+	    // sum_{i>=1} S[i] = -1 used exactly.
+	    #tSumR := 0.0;
+	    #tDev := 0.0;
+	    FOR #i := 0 TO #nR DO
+	        #tSumR := #tSumR + #R[#i];
+	        #tDev := #tDev + #R[#i] * (#hY[#i] - #hY[0]);
+	    END_FOR;
+	    #tAcc := #tSumR * (#hR[0] - #hY[0]) - #tDev;
+	    #tDev := 0.0;
+	    FOR #i := 1 TO #nT DO
+	        #tDev := #tDev + #T[#i] * (#hR[#i] - #hR[0]);
+	    END_FOR;
+	    #tAcc := #tAcc + #tDev;
+	    #tDev := 0.0;
+	    FOR #i := 1 TO 7 DO
+	        #tDev := #tDev + (#Ao[#i] - #S[#i]) * (#hU[#i - 1] - #hU[0]) - #Ao[#i] * (#hV[#i - 1] - #hU[0]);
+	    END_FOR;
+	    #tAcc := #tAcc + #tDev + #hU[0];
+	    #tU := LIMIT(MN := #sOutPrev - #RateMax, IN := #tAcc + #Ff, MX := #sOutPrev + #RateMax);
+	    #tU := LIMIT(MN := #OutLo, IN := #tU, MX := #OutHi);
+	    #AtLimit := #tU <> #tAcc + #Ff;
+	    FOR #i := 7 TO 1 BY -1 DO
+	        #hU[#i] := #hU[#i - 1];
+	        #hV[#i] := #hV[#i - 1];
+	    END_FOR;
+	    #hU[0] := #tU - #Ff;
+	    #hV[0] := #tAcc;
+	    #sOutPrev := #tU;
+	    #Out := #tU;
+	END_REGION
+END_FUNCTION_BLOCK

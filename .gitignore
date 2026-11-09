@@ -1,0 +1,10 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.pytest_tmp/
+results/cache/
+results/tia_*_log.txt
+results/tia_xml/
+data/
+results/run_*.log
+docs/DOSSIER.html

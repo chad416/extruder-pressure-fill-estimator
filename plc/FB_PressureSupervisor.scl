@@ -1,0 +1,137 @@
+FUNCTION_BLOCK "FB_PressureSupervisor"
+TITLE = Modes, sensor plausibility and output selection for the pressure loop
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : chad416
+VERSION : 0.1
+//  Modes (DOSSIER section 4, Table 4-1):
+//    0 Manual       operator speed
+//    1 PID          baseline controller
+//    2 RST          model-based controller, no feedforward
+//    3 RST+FF       model-based controller with screw-fill feedforward
+//    4 SpeedHold    degraded: pressure signal not plausible, hold the last good speed
+//    5 SafeStop     emergency: overpressure, ramp the speed to OutLo
+//  Fault handling (FMEA, DOSSIER section 9):
+//  - Pressure fault (channel status, range, frozen signal): RST/PID -> SpeedHold.
+//  - Torque fault or estimator not valid: RST+FF -> RST.
+//  - Overpressure: any mode -> SafeStop (latched until Ack).
+//  A controller that is not selected tracks the applied speed, so every switch is
+//  bumpless.
+   VAR_INPUT
+      ModeRequest : Int;   // 0..3 from the HMI
+      Ack : Bool;   // acknowledge latched faults
+      ManualSpeed : Real;   // rpm
+      Pbar : Real;
+      PChannelOk : Bool;   // analog input channel status (no wire break / overflow)
+      Torque : Real;   // N m
+      TorqueOk : Bool;   // drive telegram valid
+      EkfValid : Bool;
+      PidOut : Real;
+      RstOut : Real;
+      PTrip : Real := 150.0;   // bar, overpressure trip
+      PLow : Real := 25.0;   // bar, starvation warning (gear-pump fill)
+      PRangeHi : Real := 500.0;   // bar, transducer range
+      TorqueMax : Real := 60000.0;   // N m, plausibility limit
+      FrozenBand : Real := 0.05;   // bar
+      FrozenTime : Real := 20.0;   // s with no change while the speed moved
+      FrozenSpeedMove : Real := 1.0;   // rpm
+      OutLo : Real := 2.0;
+      SafeRamp : Real := 0.5;   // rpm per call in SafeStop
+      CycleTime : Real := 0.1;
+   END_VAR
+
+   VAR_OUTPUT
+      ActiveMode : Int;
+      SpeedSp : Real;   // rpm, to the drive
+      PidEnable : Bool;
+      RstEnable : Bool;
+      FfEnable : Bool;
+      TrackValue : Real;   // rpm, for the controllers that are not selected
+      PFault : Bool;
+      TorqueFault : Bool;
+      OverPressure : Bool;
+      Starving : Bool;
+   END_VAR
+
+   VAR
+      sPRef : Real;
+      sNRef : Real;
+      sFrozenTimer : Real;
+      sLastSpeed : Real;
+      sOverLatched : Bool;
+      sPFaultLatched : Bool;
+   END_VAR
+
+   VAR_TEMP
+      tPBad : Bool;
+      tMode : Int;
+      tSp : Real;
+   END_VAR
+
+
+BEGIN
+	REGION PressurePlausibility
+	    #tPBad := NOT #PChannelOk OR #Pbar < -1.0 OR #Pbar > #PRangeHi;
+	    // frozen signal: no change beyond the band for FrozenTime while the speed moved
+	    IF ABS(#Pbar - #sPRef) > #FrozenBand THEN
+	        #sPRef := #Pbar;
+	        #sNRef := #sLastSpeed;
+	        #sFrozenTimer := 0.0;
+	    ELSE
+	        #sFrozenTimer := #sFrozenTimer + #CycleTime;
+	    END_IF;
+	    IF #sFrozenTimer > #FrozenTime AND ABS(#sLastSpeed - #sNRef) > #FrozenSpeedMove THEN
+	        #tPBad := TRUE;
+	    END_IF;
+	    IF #tPBad THEN
+	        #sPFaultLatched := TRUE;
+	    ELSIF #Ack THEN
+	        #sPFaultLatched := FALSE;
+	    END_IF;
+	    #PFault := #sPFaultLatched;
+	END_REGION
+
+	REGION Alarms
+	    #TorqueFault := NOT #TorqueOk OR #Torque < 0.0 OR #Torque > #TorqueMax;
+	    IF NOT #PFault AND #Pbar >= #PTrip THEN
+	        #sOverLatched := TRUE;
+	    ELSIF #Ack AND #Pbar < #PTrip THEN
+	        #sOverLatched := FALSE;
+	    END_IF;
+	    #OverPressure := #sOverLatched;
+	    #Starving := NOT #PFault AND #Pbar < #PLow;
+	END_REGION
+
+	REGION ModeSelection
+	    #tMode := LIMIT(MN := 0, IN := #ModeRequest, MX := 3);
+	    IF #tMode = 3 AND (#TorqueFault OR NOT #EkfValid) THEN
+	        #tMode := 2;
+	    END_IF;
+	    IF #PFault AND #tMode >= 1 THEN
+	        #tMode := 4;
+	    END_IF;
+	    IF #OverPressure THEN
+	        #tMode := 5;
+	    END_IF;
+	    #ActiveMode := #tMode;
+	END_REGION
+
+	REGION Output
+	    IF #tMode = 0 THEN
+	        #tSp := #ManualSpeed;
+	    ELSIF #tMode = 1 THEN
+	        #tSp := #PidOut;
+	    ELSIF #tMode = 2 OR #tMode = 3 THEN
+	        #tSp := #RstOut;
+	    ELSIF #tMode = 4 THEN
+	        #tSp := #sLastSpeed;
+	    ELSE
+	        #tSp := MAX(IN1 := #sLastSpeed - #SafeRamp, IN2 := #OutLo);
+	    END_IF;
+	    #PidEnable := #tMode = 1;
+	    #RstEnable := #tMode = 2 OR #tMode = 3;
+	    #FfEnable := #tMode = 3;
+	    #SpeedSp := #tSp;
+	    #TrackValue := #tSp;
+	    #sLastSpeed := #tSp;
+	END_REGION
+END_FUNCTION_BLOCK

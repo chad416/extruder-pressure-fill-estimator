@@ -1,0 +1,83 @@
+FUNCTION_BLOCK "FB_PressurePID"
+TITLE = Baseline head-pressure PID on screw speed
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : chad416
+VERSION : 0.1
+//  Call every CycleTime seconds from a cyclic interrupt OB (OB30, 100 ms).
+//  This is the baseline for the comparison: ISA PID with setpoint weight, filtered
+//  derivative on the measurement, output and rate limits, and back-calculation
+//  anti-windup.
+//  The float64 reference is xtrude.control.PIDRuntime. tests/test_scl.py checks the two
+//  agree. Keep both in step.
+   VAR_INPUT
+      Enable : Bool;   // FALSE: Out := TrackValue (bumpless start when set TRUE)
+      Setpoint : Real;   // bar
+      Pv : Real;   // measured head pressure, bar
+      Ff : Real;   // rpm, feedforward added to the output
+      TrackValue : Real;   // rpm, output while not enabled
+      Kp : Real := 0.11;   // rpm/bar
+      Ti : Real := 0.49;   // s, > 0
+      Td : Real := 0.17;   // s, 0 = no derivative action
+      Nf : Real := 10.0;   // derivative filter: time constant Td / Nf
+      SpWeight : Real := 1.0;   // setpoint weight of the P part
+      Tt : Real := 0.49;   // s, anti-windup tracking time
+      OutLo : Real := 2.0;   // rpm
+      OutHi : Real := 45.0;   // rpm
+      RateMax : Real := 0.5;   // rpm per call
+      CycleTime : Real := 0.1;   // s
+   END_VAR
+
+   VAR_OUTPUT
+      Out : Real;   // screw speed setpoint, rpm
+      AtLimit : Bool;   // output or rate limit active in this call
+   END_VAR
+
+   VAR
+      sI : Real;
+      sD : Real;
+      sPvPrev : Real;
+      sOutPrev : Real;
+   END_VAR
+
+   VAR_TEMP
+      tAd : Real;
+      tKd : Real;
+      tV : Real;
+      tU : Real;
+   END_VAR
+
+
+BEGIN
+	REGION Track
+	    IF NOT #Enable THEN
+	        #Out := #TrackValue;
+	        #sI := #TrackValue - #Kp * (#SpWeight * #Setpoint - #Pv);
+	        #sD := 0.0;
+	        #sPvPrev := #Pv;
+	        #sOutPrev := #TrackValue;
+	        #AtLimit := FALSE;
+	        RETURN;
+	    END_IF;
+	END_REGION
+
+	REGION Control
+	    IF #Td > 0.0 THEN
+	        #tAd := #Td / (#Td + #Nf * #CycleTime);
+	        #tKd := #Kp * #Td * #Nf / (#Td + #Nf * #CycleTime);
+	    ELSE
+	        #tAd := 0.0;
+	        #tKd := 0.0;
+	    END_IF;
+	    #sD := #tAd * #sD - #tKd * (#Pv - #sPvPrev);
+	    #sI := #sI + #Kp * #CycleTime / #Ti * (#Setpoint - #Pv);
+	    #tV := #Kp * (#SpWeight * #Setpoint - #Pv) + #sI + #sD + #Ff;
+	    #tU := LIMIT(MN := #sOutPrev - #RateMax, IN := #tV, MX := #sOutPrev + #RateMax);
+	    #tU := LIMIT(MN := #OutLo, IN := #tU, MX := #OutHi);
+	    #AtLimit := #tU <> #tV;
+	    // back-calculation anti-windup
+	    #sI := #sI + #CycleTime / #Tt * (#tU - #tV);
+	    #sPvPrev := #Pv;
+	    #sOutPrev := #tU;
+	    #Out := #tU;
+	END_REGION
+END_FUNCTION_BLOCK

@@ -1,0 +1,160 @@
+// TIA Portal only. The Python translator handles FBs only and does not run this file.
+// scripts/tia_build.ps1 does the build:
+// 1. Generate FB_PressurePID, FB_PressureRST, FB_FillEKF and FB_PressureSupervisor from ../*.scl.
+// 2. Generate FC_LoadParams.scl, which scripts/run_study.py writes, then this file.
+// 3. Turn "Cyclic_Pressure" into a cyclic-interrupt OB30 at 100 ms (SimaticML round trip).
+// "LineIO" stands in for the line's I/O mapping. On a real line its inputs come from the
+// analog card, the drive telegram and the line PLC (DOSSIER section 6, interface table).
+
+DATA_BLOCK "LineIO"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+   VAR
+      // inputs (from I/O and the line)
+      Pbar : Real;   // IF-01 head pressure, bar
+      PChannelOk : Bool;   // IF-01 channel status
+      Torque : Real;   // IF-02 drive actual torque, N m
+      Nrpm : Real;   // IF-02 drive actual speed, rpm
+      TorqueOk : Bool;   // IF-02 telegram valid
+      Tmelt : Real;   // IF-03 melt temperature, degC
+      GpRel : Real;   // IF-05 gear-pump speed / design speed
+      FeedOn : Bool;   // IF-05 feed roll running
+      BatchEvent : Bool;   // IF-06 new batch entered the feed (one cycle)
+      ModeRequest : Int;   // IF-04 HMI: 0 manual, 1 PID, 2 RST, 3 RST+FF
+      Ack : Bool;
+      ManualSpeed : Real;
+      PSp : Real := 60.0;   // pressure setpoint, bar
+      // parameters loaded by FC_LoadParams
+      ParamsLoaded : Bool;
+      PidKp : Real := 0.1;
+      PidTi : Real := 0.5;
+      PidTd : Real := 0.0;
+      // outputs
+      SpeedSp : Real;   // IF-02 speed setpoint to the drive, rpm
+      ActiveMode : Int;
+      MassInScrew : Real;   // kg, to HMI and historian
+      MassSigma : Real;
+      PFault : Bool;
+      TorqueFault : Bool;
+      OverPressure : Bool;
+      Starving : Bool;
+      // feedforward bookkeeping
+      FfRef : Real;
+      FfWasOn : Bool;
+      Ff : Real;
+   END_VAR
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "iPID"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"FB_PressurePID"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "iRST"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"FB_PressureRST"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "iEKF"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"FB_FillEKF"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "iSUP"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"FB_PressureSupervisor"
+
+BEGIN
+
+END_DATA_BLOCK
+
+ORGANIZATION_BLOCK "Cyclic_Pressure"
+TITLE = Head-pressure loop and screw-fill estimator, every 100 ms
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+BEGIN
+	IF NOT "LineIO".ParamsLoaded THEN
+	    "FC_LoadParams"();
+	END_IF;
+
+	// estimator runs in every mode (it also feeds the HMI mass display)
+	"iEKF"(Reset := FALSE,
+	       Nrpm := "LineIO".Nrpm,
+	       Tmelt := "LineIO".Tmelt,
+	       Pbar := "LineIO".Pbar,
+	       Torque := "LineIO".Torque,
+	       GpRel := "LineIO".GpRel,
+	       FeedOn := "LineIO".FeedOn,
+	       BatchEvent := "LineIO".BatchEvent,
+	       PSp := "LineIO".PSp);
+
+	// feedforward: change of the balance speed since FF was switched on
+	IF "iSUP".FfEnable AND "iEKF".Valid THEN
+	    IF NOT "LineIO".FfWasOn THEN
+	        "LineIO".FfRef := "iEKF".SpeedBalance;
+	    END_IF;
+	    "LineIO".Ff := "iEKF".SpeedBalance - "LineIO".FfRef;
+	    "LineIO".FfWasOn := TRUE;
+	ELSE
+	    "LineIO".Ff := 0.0;
+	    "LineIO".FfWasOn := FALSE;
+	END_IF;
+
+	"iPID"(Enable := "iSUP".PidEnable,
+	       Setpoint := "LineIO".PSp,
+	       Pv := "LineIO".Pbar,
+	       Ff := 0.0,
+	       TrackValue := "iSUP".TrackValue,
+	       Kp := "LineIO".PidKp,
+	       Ti := "LineIO".PidTi,
+	       Td := "LineIO".PidTd,
+	       Tt := "LineIO".PidTi);
+
+	"iRST"(Enable := "iSUP".RstEnable,
+	       Setpoint := "LineIO".PSp,
+	       Pv := "LineIO".Pbar,
+	       Ff := "LineIO".Ff,
+	       TrackValue := "iSUP".TrackValue);
+
+	"iSUP"(ModeRequest := "LineIO".ModeRequest,
+	       Ack := "LineIO".Ack,
+	       ManualSpeed := "LineIO".ManualSpeed,
+	       Pbar := "LineIO".Pbar,
+	       PChannelOk := "LineIO".PChannelOk,
+	       Torque := "LineIO".Torque,
+	       TorqueOk := "LineIO".TorqueOk,
+	       EkfValid := "iEKF".Valid,
+	       PidOut := "iPID".Out,
+	       RstOut := "iRST".Out);
+
+	"LineIO".SpeedSp := "iSUP".SpeedSp;
+	"LineIO".ActiveMode := "iSUP".ActiveMode;
+	"LineIO".MassInScrew := "iEKF".Mass;
+	"LineIO".MassSigma := "iEKF".MassSigma;
+	"LineIO".PFault := "iSUP".PFault;
+	"LineIO".TorqueFault := "iSUP".TorqueFault;
+	"LineIO".OverPressure := "iSUP".OverPressure;
+	"LineIO".Starving := "iSUP".Starving;
+END_ORGANIZATION_BLOCK

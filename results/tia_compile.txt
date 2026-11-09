@@ -1,0 +1,17 @@
+generated FB_PressurePID
+generated FB_PressureRST
+generated FB_FillEKF
+generated FB_PressureSupervisor
+COMPILE Success  errors=0  warnings=0
+  Success  PLC_1  
+    Success  Program blocks  
+      Success  Main (OB1)  Block was successfully compiled.
+      Success  FB_PressurePID (FB1)  Block was successfully compiled.
+      Success  FB_PressureRST (FB2)  Block was successfully compiled.
+      Success  FB_FillEKF (FB3)  Block was successfully compiled.
+      Success  FB_PressureSupervisor (FB4)  Block was successfully compiled.
+  Success    Compiling finished (errors: 0; warnings: 0)
+project: C:\TIA_xtrude\xtrude_20261109_225203\xtrude_20261109_225203.ap18
+
+
+[exited with code 0]

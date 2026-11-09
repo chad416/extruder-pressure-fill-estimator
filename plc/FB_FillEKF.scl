@@ -1,0 +1,357 @@
+FUNCTION_BLOCK "FB_FillEKF"
+TITLE = Screw-fill estimator (EKF) and feedforward speed
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : chad416
+VERSION : 0.1
+//  Extended Kalman filter on the reduced screw model of xtrude.estimator.FillEKF:
+//  - State x[0..11]: fill of 12 channel compartments. x[12]: fill at the feed opening.
+//    x[13]: consistency theta (Pa s^n). x[14]: fully filled length Zf (m).
+//  - Measurements: drive torque (N m) and head pressure (bar).
+//  - Inputs: speed, melt temperature, gear-pump relative speed, feed-on flag,
+//    batch-change event.
+//  - Call it from OB30 every 100 ms. It runs one filter step every Divider calls
+//    (Divider * CycleTime = 0.5 s). In between, the outputs keep their last values.
+//  - Covariance P is a flat Array[0..224], index i*15 + j. The state Jacobian F has at
+//    most two non-zeros per row, so P := F P F' + Q costs O(n^2) and not O(n^3).
+//  - The float64 reference is xtrude.estimator.FillEKF. tests/test_scl.py runs both on
+//    the same signals.
+   VAR_INPUT
+      Reset : Bool;   // TRUE: re-initialise state and covariance
+      Nrpm : Real;   // measured screw speed, rpm
+      Tmelt : Real;   // melt temperature, degC
+      Pbar : Real;   // head pressure, bar
+      Torque : Real;   // drive torque, N m
+      GpRel : Real;   // gear-pump speed relative to its design speed
+      FeedOn : Bool;
+      BatchEvent : Bool;   // one call TRUE when a new batch enters the feed
+      PSp : Real;   // pressure setpoint, bar (for the feedforward speed)
+      Divider : Int := 5;
+      CycleTime : Real := 0.1;
+      // geometry and material constants (from drawings and the compound data sheet)
+      Dz : Real := 0.3296908;   // compartment length, m (channel length / 12)
+      Area : Real := 2.302804E-3;   // channel cross-section W*H, m2
+      Qd1 : Real := 4.77016E-4;   // drag flow per rev/s, m3/rev
+      Kv1 : Real := 15.742007;   // (pi D)^2 (cos^2 phi + 4 sin^2 phi)/H, m
+      Wc : Real := 0.1279336;   // channel width, m
+      Hc : Real := 0.018;   // channel depth, m
+      VzPerN : Real := 0.4490391;   // Vbz per rev/s, m
+      GdotPerN : Real := 26.17994;   // channel shear rate per rev/s
+      PCoef : Real := 5.66623E-8;   // W H^3 Fp / 12, m4
+      QgpDisp : Real := 1.822185E-4;   // gear-pump design volume flow, m3/s
+      PFill : Real := 1.65E6;   // gear-pump fill pressure, Pa
+      Friction : Real := 1575.0;   // N m
+      Ne : Real := 0.25;
+      Be : Real := 0.010;
+      T0 : Real := 90.0;
+      Rho : Real := 1150.0;
+      Zmax : Real := 3.95629;   // channel length of the pumping section, m
+      Theta0 : Real := 3.16192E5;   // initial consistency guess, Pa s^n
+      RTorque : Real := 400.0;
+      RP : Real := 1.0;
+      Qf : Real := 0.002;
+      Qfin : Real := 0.01;
+      QthRel : Real := 0.002;
+      QthBatchRel : Real := 0.04;
+      Qzf : Real := 0.005;
+   END_VAR
+
+   VAR_OUTPUT
+      Mass : Real;   // kg of compound in the pumping section
+      MassSigma : Real;   // kg, 1-sigma from the covariance
+      FrontFill : Real;   // fill of the compartment at the fill front
+      SpeedBalance : Real;   // rpm at which the arriving fill matches the gear pump
+      Theta : Real;   // estimated consistency, Pa s^n
+      Valid : Bool;   // FALSE until the first update and while inputs are implausible
+   END_VAR
+
+   VAR
+      x : Array[0..14] of Real;
+      P : Array[0..224] of Real;
+      A : Array[0..224] of Real;   // scratch: F * P
+      fDiag : Array[0..14] of Real;   // F(i,i)
+      fOffCol : Array[0..14] of Int;   // column of the second non-zero in row i, -1 = none
+      fOff : Array[0..14] of Real;
+      Hm : Array[0..29] of Real;   // H, 2 x 15, row-major
+      PHt : Array[0..29] of Real;   // P H', 15 x 2
+      Kg : Array[0..29] of Real;   // gain, 15 x 2
+      sCount : Int;
+      sBatchTimer : Real;
+      sInit : Bool;
+   END_VAR
+
+   VAR_TEMP
+      i : Int;
+      j : Int;
+      k : Int;
+      tN : Real;
+      tTs : Real;
+      tQd : Real;
+      tCfl : Real;
+      tFin : Real;
+      tQout : Real;
+      tFm : Real;
+      tPrev : Real;
+      tCur : Real;
+      tZf : Real;
+      tEta : Real;
+      tGd : Real;
+      tKt : Real;
+      tL : Real;
+      tTq : Real;
+      tPp : Real;
+      tQp : Real;
+      tQth : Real;
+      tS00 : Real;
+      tS01 : Real;
+      tS11 : Real;
+      tDet : Real;
+      tI00 : Real;
+      tI01 : Real;
+      tI11 : Real;
+      tE0 : Real;
+      tE1 : Real;
+      tSum : Real;
+      tG : Real;
+      tVar : Real;
+   END_VAR
+
+
+BEGIN
+	REGION Init
+	    IF #Reset OR NOT #sInit THEN
+	        FOR #i := 0 TO 12 DO
+	            #x[#i] := 0.75;
+	        END_FOR;
+	        #x[13] := #Theta0;
+	        #x[14] := 0.15;
+	        FOR #i := 0 TO 224 DO
+	            #P[#i] := 0.0;
+	        END_FOR;
+	        FOR #i := 0 TO 12 DO
+	            #P[#i * 15 + #i] := 0.0025;
+	        END_FOR;
+	        #P[13 * 15 + 13] := (0.3 * #Theta0) * (0.3 * #Theta0);
+	        #P[14 * 15 + 14] := 0.0025;
+	        #sCount := 0;
+	        #sBatchTimer := 0.0;
+	        #sInit := TRUE;
+	        #Valid := FALSE;
+	    END_IF;
+	END_REGION
+
+	REGION Divider
+	    // the batch event can arrive between filter steps: start the timer at once
+	    #tN := #Nrpm / 60.0;
+	    #tQd := #Qd1 * MAX(IN1 := #tN, IN2 := 0.001);
+	    IF #BatchEvent THEN
+	        #sBatchTimer := #Zmax / MAX(IN1 := #tQd / #Area, IN2 := 0.001);
+	    END_IF;
+	    #sCount := #sCount + 1;
+	    IF #sCount < #Divider THEN
+	        RETURN;
+	    END_IF;
+	    #sCount := 0;
+	    #tTs := #CycleTime * INT_TO_REAL(#Divider);
+	END_REGION
+
+	REGION Predict
+	    #tN := MAX(IN1 := #tN, IN2 := 0.001);
+	    #tQd := #Qd1 * #tN;
+	    #tCfl := MIN(IN1 := #tQd / #Area * #tTs / #Dz, IN2 := 1.0);
+	    IF #FeedOn THEN
+	        #tFin := #x[12];
+	    ELSE
+	        #tFin := 0.0;
+	    END_IF;
+	    #tQout := #QgpDisp * #GpRel * (1.0 - EXP(-MAX(IN1 := #Pbar, IN2 := 0.0) * 1.0E5 / #PFill));
+	    #tFm := LIMIT(MN := 0.0, IN := #x[11], MX := 0.98);
+	    // Jacobian F (sparse) at the prior state
+	    FOR #i := 0 TO 14 DO
+	        #fDiag[#i] := 1.0;
+	        #fOffCol[#i] := -1;
+	        #fOff[#i] := 0.0;
+	    END_FOR;
+	    FOR #i := 0 TO 11 DO
+	        #fDiag[#i] := 1.0 - #tCfl;
+	        IF #i > 0 THEN
+	            #fOffCol[#i] := #i - 1;
+	            #fOff[#i] := #tCfl;
+	        END_IF;
+	    END_FOR;
+	    IF #FeedOn THEN
+	        #fOffCol[0] := 12;
+	        #fOff[0] := #tCfl;
+	    END_IF;
+	    #fOffCol[14] := 11;
+	    #fOff[14] := #tTs * (#tQd - #tQout) / ((1.0 - #tFm) * (1.0 - #tFm) * #Area);
+	    // state: upwind advection, then the fill-front balance
+	    #tZf := #x[14] + #tTs * (#tFm * #tQd - #tQout) / ((1.0 - #tFm) * #Area);
+	    #tPrev := #x[0];
+	    #x[0] := #x[0] + #tCfl * (#tFin - #x[0]);
+	    FOR #i := 1 TO 11 DO
+	        #tCur := #x[#i];
+	        #x[#i] := #tCur + #tCfl * (#tPrev - #tCur);
+	        #tPrev := #tCur;
+	    END_FOR;
+	    #x[14] := LIMIT(MN := 0.001, IN := #tZf, MX := #Zmax);
+	    FOR #i := 0 TO 12 DO
+	        #x[#i] := LIMIT(MN := 0.0, IN := #x[#i], MX := 1.0);
+	    END_FOR;
+	    // P := F P F' + Q, using the sparse rows of F
+	    FOR #i := 0 TO 14 DO
+	        FOR #j := 0 TO 14 DO
+	            #tSum := #fDiag[#i] * #P[#i * 15 + #j];
+	            IF #fOffCol[#i] >= 0 THEN
+	                #tSum := #tSum + #fOff[#i] * #P[#fOffCol[#i] * 15 + #j];
+	            END_IF;
+	            #A[#i * 15 + #j] := #tSum;
+	        END_FOR;
+	    END_FOR;
+	    FOR #i := 0 TO 14 DO
+	        FOR #j := 0 TO 14 DO
+	            #tSum := #A[#i * 15 + #j] * #fDiag[#j];
+	            IF #fOffCol[#j] >= 0 THEN
+	                #tSum := #tSum + #A[#i * 15 + #fOffCol[#j]] * #fOff[#j];
+	            END_IF;
+	            #P[#i * 15 + #j] := #tSum;
+	        END_FOR;
+	    END_FOR;
+	    IF #sBatchTimer > 0.0 THEN
+	        #tQth := #QthBatchRel * #x[13];
+	    ELSE
+	        #tQth := #QthRel * #x[13];
+	    END_IF;
+	    #sBatchTimer := MAX(IN1 := #sBatchTimer - #tTs, IN2 := 0.0);
+	    FOR #i := 0 TO 11 DO
+	        #P[#i * 15 + #i] := #P[#i * 15 + #i] + #Qf * #Qf;
+	    END_FOR;
+	    IF #FeedOn THEN
+	        #P[12 * 15 + 12] := #P[12 * 15 + 12] + #Qfin * #Qfin;
+	    ELSE
+	        #P[12 * 15 + 12] := #P[12 * 15 + 12] + 1.0E-8;
+	    END_IF;
+	    #P[13 * 15 + 13] := #P[13 * 15 + 13] + #tQth * #tQth;
+	    #P[14 * 15 + 14] := #P[14 * 15 + 14] + #Qzf * #Qzf;
+	END_REGION
+
+	REGION Update
+	    #tZf := MAX(IN1 := #x[14], IN2 := 0.001);
+	    #tFm := #x[11];
+	    #tGd := MAX(IN1 := #GdotPerN * #tN, IN2 := 0.05);
+	    #tEta := #x[13] * EXP((#Ne - 1.0) * LN(#tGd) - #Be * (#Tmelt - #T0));
+	    #tKt := #Kv1 * #tN * #tN * #Wc / (6.2831853 * #tN);
+	    #tSum := 0.0;
+	    FOR #i := 0 TO 11 DO
+	        #tSum := #tSum + #x[#i];
+	    END_FOR;
+	    #tL := #Dz * #tSum + #tZf * (1.0 - #tFm);
+	    #tTq := #tEta * #tKt * #tL + 0.5 * #Pbar * 1.0E5 * #Hc * #VzPerN * #tN * #Wc / (6.2831853 * #tN) + #Friction;
+	    #tQp := MAX(IN1 := #tQd - #tQout, IN2 := 0.0);
+	    #tPp := #tQp * #tEta / #PCoef * #tZf / 1.0E5;
+	    // H (2 x 15)
+	    FOR #i := 0 TO 29 DO
+	        #Hm[#i] := 0.0;
+	    END_FOR;
+	    FOR #i := 0 TO 11 DO
+	        #Hm[#i] := #tEta * #tKt * #Dz;
+	    END_FOR;
+	    #Hm[11] := #tEta * #tKt * (#Dz - #tZf);
+	    #Hm[13] := #tEta / #x[13] * #tKt * #tL;
+	    #Hm[14] := #tEta * #tKt * (1.0 - #tFm);
+	    #Hm[15 + 13] := #tPp / #x[13];
+	    #Hm[15 + 14] := #tPp / #tZf;
+	    // PHt = P H' (15 x 2)
+	    FOR #i := 0 TO 14 DO
+	        #tE0 := 0.0;
+	        #tE1 := 0.0;
+	        FOR #j := 0 TO 14 DO
+	            #tE0 := #tE0 + #P[#i * 15 + #j] * #Hm[#j];
+	            #tE1 := #tE1 + #P[#i * 15 + #j] * #Hm[15 + #j];
+	        END_FOR;
+	        #PHt[#i * 2] := #tE0;
+	        #PHt[#i * 2 + 1] := #tE1;
+	    END_FOR;
+	    // S = H P H' + R (2 x 2) and its inverse
+	    #tS00 := #RTorque * #RTorque;
+	    #tS01 := 0.0;
+	    #tS11 := #RP * #RP;
+	    FOR #j := 0 TO 14 DO
+	        #tS00 := #tS00 + #Hm[#j] * #PHt[#j * 2];
+	        #tS01 := #tS01 + #Hm[#j] * #PHt[#j * 2 + 1];
+	        #tS11 := #tS11 + #Hm[15 + #j] * #PHt[#j * 2 + 1];
+	    END_FOR;
+	    #tDet := #tS00 * #tS11 - #tS01 * #tS01;
+	    IF #tDet <= 0.0 THEN
+	        #Valid := FALSE;
+	        RETURN;
+	    END_IF;
+	    #tI00 := #tS11 / #tDet;
+	    #tI01 := -#tS01 / #tDet;
+	    #tI11 := #tS00 / #tDet;
+	    // gain and state update
+	    #tE0 := #Torque - #tTq;
+	    #tE1 := #Pbar - #tPp;
+	    FOR #i := 0 TO 14 DO
+	        #Kg[#i * 2] := #PHt[#i * 2] * #tI00 + #PHt[#i * 2 + 1] * #tI01;
+	        #Kg[#i * 2 + 1] := #PHt[#i * 2] * #tI01 + #PHt[#i * 2 + 1] * #tI11;
+	        #x[#i] := #x[#i] + #Kg[#i * 2] * #tE0 + #Kg[#i * 2 + 1] * #tE1;
+	    END_FOR;
+	    FOR #i := 0 TO 12 DO
+	        #x[#i] := LIMIT(MN := 0.0, IN := #x[#i], MX := 1.0);
+	    END_FOR;
+	    #x[13] := MAX(IN1 := #x[13], IN2 := 1000.0);
+	    #x[14] := LIMIT(MN := 0.001, IN := #x[14], MX := #Zmax);
+	    // P := P - K (P H')'   (symmetric form, one triangle copied to the other)
+	    FOR #i := 0 TO 14 DO
+	        FOR #j := #i TO 14 DO
+	            #tSum := #P[#i * 15 + #j] - #Kg[#i * 2] * #PHt[#j * 2] - #Kg[#i * 2 + 1] * #PHt[#j * 2 + 1];
+	            #P[#i * 15 + #j] := #tSum;
+	            #P[#j * 15 + #i] := #tSum;
+	        END_FOR;
+	    END_FOR;
+	END_REGION
+
+	REGION Outputs
+	    #tZf := #x[14];
+	    #tFm := #x[11];
+	    #tSum := 0.0;
+	    FOR #i := 0 TO 11 DO
+	        #tSum := #tSum + #x[#i];
+	    END_FOR;
+	    #tL := #Dz * #tSum + #tZf * (1.0 - #tFm);
+	    #Mass := #Rho * #Area * #tL;
+	    // mass sigma: g' P g with g = Rho*Area*[Dz..., Dz - Zf, 0, 0, 1 - fm]
+	    #tVar := 0.0;
+	    FOR #i := 0 TO 14 DO
+	        IF #i <= 11 THEN
+	            #tG := #Dz;
+	            IF #i = 11 THEN
+	                #tG := #Dz - #tZf;
+	            END_IF;
+	        ELSIF #i = 14 THEN
+	            #tG := 1.0 - #tFm;
+	        ELSE
+	            #tG := 0.0;
+	        END_IF;
+	        FOR #j := 0 TO 14 DO
+	            IF #j <= 11 THEN
+	                #tE0 := #Dz;
+	                IF #j = 11 THEN
+	                    #tE0 := #Dz - #tZf;
+	                END_IF;
+	            ELSIF #j = 14 THEN
+	                #tE0 := 1.0 - #tFm;
+	            ELSE
+	                #tE0 := 0.0;
+	            END_IF;
+	            #tVar := #tVar + #tG * #P[#i * 15 + #j] * #tE0;
+	        END_FOR;
+	    END_FOR;
+	    #MassSigma := #Rho * #Area * SQRT(MAX(IN1 := #tVar, IN2 := 0.0));
+	    #FrontFill := #tFm;
+	    #Theta := #x[13];
+	    #tQout := #QgpDisp * #GpRel * (1.0 - EXP(-#PSp * 1.0E5 / #PFill));
+	    #SpeedBalance := #tQout / (MAX(IN1 := #tFm, IN2 := 0.05) * #Qd1) * 60.0;
+	    #Valid := TRUE;
+	END_REGION
+END_FUNCTION_BLOCK
