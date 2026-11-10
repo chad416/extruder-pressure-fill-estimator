@@ -1,21 +1,19 @@
 # Progress notes
 
-**Status on 10 Nov 2026:** version 0.1.0 is complete and committed to local git. Nothing is pushed.
+**Status on 10 Nov 2026:** version 0.2.0 is complete and committed to local git. Nothing is pushed.
 
 ## Done
-- Model, identification, controllers, estimators, SCL blocks.
-- 24 tests pass.
+- Model, identification, controllers, estimators and SCL blocks. 26 tests pass.
 - Full study in results/study.md and the trade study in results/aoa.md.
-- TIA V18 compile: 0 errors, 0 warnings, with OB30 at 100 ms. The project is in C:\TIA_xtrude\xtrude_20261109_225203.
-- DOSSIER.md and docs/DOSSIER.pdf.
+- **TIA V18:** 0 errors, 0 warnings, including OB30 at 100 ms. Last build: C:\TIA_xtrude\xtrude_20261110_024438.
+- **0.2.0 fixes:**
+  - EKF superbee transport: the run-out error fell from up to 0.62 kg to 0.04 kg or less.
+  - The plant no longer creates material in an empty screw.
+  - Leaner EKF covariance loops: 4.39 ms with margin, within the 5 ms allocation.
+- DOSSIER.md (revision B) and docs/DOSSIER.pdf.
 
 ## Open (see DOSSIER §11–13)
-- **PLCSIM run (V03):** needs S7-PLCSIM V18, which is not installed.
-- **Timing on the CPU:** the OB30 execution time has not been measured on a real CPU.
-- **EKF run-out accuracy:** SPS-312 is not met. The EKF overestimates the last 0.3 kg by up to 0.6 kg.
-- **Plant questions Q1–Q4:**
-  - which outlet type the line has;
-  - the current PID settings;
-  - which signals are available;
-  - whether a batch-change event exists.
+- **PLCSIM run (V03):** not installed for any TIA version here. It needs a Siemens SiOS login.
+- **Timing on a real CPU:** the OB30 execution time is not measured (VT-07).
+- **Plant questions Q1–Q8:** listed in PLAN.md §5c and DOSSIER §12.
 - **Future work:** a learned residual on top of the EKF, once weighed purges exist as labels.

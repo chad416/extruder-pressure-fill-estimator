@@ -43,3 +43,22 @@ def test_learned_models_fit_simple_function():
     y = 2 * X[:, 0] - X[:, 1] + 0.5 * np.tanh(X[:, 2]) + 0.01 * rng.normal(size=2000)
     assert np.sqrt(np.mean((Ridge(1e-3).fit(X, y).predict(X) - y) ** 2)) < 0.2
     assert np.sqrt(np.mean((MLP(epochs=200).fit(X, y).predict(X) - y) ** 2)) < 0.1
+
+
+def test_runout_estimate_at_starvation_point():
+    """SPS-312: estimate error <= 0.5 kg (threshold) when the pressure first falls below 25 bar."""
+    e = nominal(seed=2)
+    ekf = FillEKF(e)
+    pid = PIDRuntime(0.108, 0.472, 0.169, 2, 45, 0.5)
+    pid.init(60, e.measure()["P_bar"], 30)
+    err = None
+    for k in range(int(400 / TS)):
+        if k == int(250 / TS):
+            e.feed_on = False
+        m = e.measure()
+        if k % 5 == 0:
+            ekf.step(m, e.N_gp_rel, e.feed_on, False)
+        e.step(pid.step(60, m["P_bar"]), TS)
+        if err is None and k > int(250 / TS) and e.P < 25e5:
+            err = ekf.mass() - e.mass()
+    assert err is not None and abs(err) < 0.15

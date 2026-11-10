@@ -58,6 +58,11 @@ class EkfConfig:
     q_theta_batch_rel: float = 0.04  # while a new batch travels through the screw
     q_zf: float = 0.005
     use_batch_event: bool = True
+    # transport scheme of the fill profile: "superbee" (TVD, keeps the emptying front sharp)
+    # or "upwind" (first order, version 0.1.0; smears a run-out front over ~8 compartments)
+    scheme: str = "superbee"
+    # extra process noise where the profile has a front: model error of the coarse grid
+    q_front: float = 0.10
 
 
 class FillEKF:
@@ -135,6 +140,36 @@ class FillEKF:
         H[1, m + 2] = p / Zf
         return H
 
+    def advect(self, f: np.ndarray, fin: float, cfl: float) -> np.ndarray:
+        """One step of fill transport on the compartment grid.
+
+        superbee: second-order TVD flux-limited upwind scheme (LeVeque, *Finite Volume Methods
+        for Hyperbolic Problems*, CUP 2002, Ch. 6; section not re-checked). It keeps a moving
+        front about 2 compartments wide, against about 8 for first-order upwind at CFL 0.13.
+        """
+        m = len(f)
+        if self.cfg.scheme == "upwind":
+            out = f.copy()
+            out[0] = f[0] + cfl * (fin - f[0])
+            out[1:] = f[1:] + cfl * (f[:-1] - f[1:])
+            return out
+        ext = np.r_[fin, fin, f]  # two ghost cells carrying the inflow fill
+        flux = np.empty(m + 1)  # flux[i] = F at the left face of cell i, flux[m] = outflow face
+        for i in range(m + 1):
+            j = i + 1  # index in ext of the upwind cell for face i
+            if i == m or i == 0:
+                flux[i] = ext[j]
+                continue
+            d1 = ext[j] - ext[j - 1]
+            d2 = ext[j + 1] - ext[j]
+            if abs(d2) < 1e-12:
+                phi = 0.0
+            else:
+                r = d1 / d2
+                phi = max(0.0, min(2 * r, 1.0), min(r, 2.0))
+            flux[i] = ext[j] + 0.5 * (1 - cfl) * phi * d2
+        return f - cfl * (flux[1:] - flux[:-1])
+
     def f_dyn(self, x: np.ndarray, N: float, P_bar: float, n_gp_rel: float, feed_on: bool) -> np.ndarray:
         c = self.cfg
         m = c.m
@@ -143,8 +178,7 @@ class FillEKF:
         cfl = min(Qd / self.A * c.ts / self.dz, 1.0)
         f = x[:m]
         fin = x[m] if feed_on else 0.0
-        out[0] = f[0] + cfl * (fin - f[0])
-        out[1:m] = f[1:] + cfl * (f[:-1] - f[1:])
+        out[:m] = self.advect(f, fin, cfl)
         fm = min(max(f[-1], 0.0), 0.98)
         dZf = (fm * Qd - self.q_out(P_bar, n_gp_rel)) / ((1 - fm) * self.A)
         out[m + 2] = min(max(x[m + 2] + c.ts * dZf, 1e-3), self.s.Z)
@@ -153,7 +187,12 @@ class FillEKF:
         return out
 
     def f_jac(self, x: np.ndarray, N: float, P_bar: float, n_gp_rel: float, feed_on: bool) -> np.ndarray:
-        """Analytic state Jacobian of f_dyn (advection is linear; Zf row from the front balance)."""
+        """State Jacobian of f_dyn.
+
+        The advection rows use the first-order upwind part only. The limiter term is left out
+        of the linearisation, which is a standard approximation for TVD schemes in an EKF.
+        It also keeps F at two non-zeros per row, so the PLC covariance update stays sparse.
+        """
         c = self.cfg
         m = c.m
         Qd = self.pump.q_drag(N)
@@ -195,8 +234,9 @@ class FillEKF:
         th = self.x[m + 1]
         q_th = c.q_theta_batch_rel if self.batch_timer > 0 else c.q_theta_rel
         self.batch_timer = max(self.batch_timer - c.ts, 0.0)
-        Q = np.diag(np.r_[np.full(m, c.q_f**2), (c.q_fin if feed_on else 1e-4) ** 2, (q_th * th) ** 2,
-                          c.q_zf**2])
+        f_prev = np.r_[self.x[m] if feed_on else 0.0, self.x[:m - 1]]
+        q_fill = c.q_f**2 + (c.q_front * np.abs(self.x[:m] - f_prev)) ** 2
+        Q = np.diag(np.r_[q_fill, (c.q_fin if feed_on else 1e-4) ** 2, (q_th * th) ** 2, c.q_zf**2])
         self.Pm = F @ self.Pm @ F.T + Q
         # update with torque and pressure
         def h(z):

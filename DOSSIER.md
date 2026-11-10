@@ -1,11 +1,17 @@
 ---
 title: "Model-based head-pressure control and screw-fill estimation for a cold-feed rubber extruder"
-subtitle: "Systems engineering dossier (pre-baseline draft, revision A, 10 Nov 2026)"
+subtitle: "Systems engineering dossier (pre-baseline draft, revision B, 10 Nov 2026)"
 ---
 
 # Model-based head-pressure control and screw-fill estimation for a cold-feed rubber extruder
 
-**Systems engineering dossier.** Pre-baseline draft, revision A, 10 Nov 2026.
+**Systems engineering dossier.** Pre-baseline draft, revision B, 10 Nov 2026.
+
+**What revision B changed.**
+- EKF run-out fix (§13).
+- SPS-313 coverage statistic (§11.1).
+- Meeting questions (§12).
+- The numbers in §0 and §10 are re-run.
 
 This dossier follows the structure of C. S. Wasson, *System Engineering Analysis, Design,
 and Development* (2nd ed., Wiley 2016), cited as **[W]** with the printed page and then the PDF page.
@@ -61,21 +67,22 @@ and paired comparisons. Uncertainties are ±2 standard deviations across runs.
 
    | Measure | PID+FF vs PID | RST+FF vs RST |
    |---|---|---|
-   | 99th-percentile deviation | **−26 %** median (1.05 → 0.77 bar), better in 23/24 runs | **−27 %**, better in 21/24 runs |
-   | Time outside ±3 bar | halved | — |
-   | Actuator travel | +15–18 % | +15–18 % |
+   | 99th-percentile deviation | **−28 %** median (1.05 → 0.78 bar), better in 21/24 runs | **−22 %**, better in 23/24 runs |
+   | Pressure standard deviation | −15 %, better in 23/24 runs | +4 %, better in 8/24 runs |
+   | Time outside ±3 bar | 0.31 → 0.17 % | 0.31 → 0.29 % |
+   | Actuator travel | +15 % | +17 % |
 
 4. **Compound left in the screw (topic 3), feasibility.** RMSE is over a content of about 8 kg.
 
    | Estimator | In range | Viscosity outside training range |
    |---|---|---|
-   | Physics EKF (torque + head pressure + batch-change events) | **0.11 ± 0.09 kg** (1.4 %) | **0.16 kg** |
-   | Physics EKF, no batch events | 0.29 kg | — |
+   | Physics EKF (torque + head pressure + batch-change events) | **0.093 ± 0.025 kg** (1.2 %), worst run 0.12 kg | **0.145 kg**, worst 0.21 kg |
+   | Physics EKF, no batch events | 0.31 kg | — |
    | **Learned model on torque, power and rpm only** (the literal topic) | **0.29 ± 0.26 kg** (MLP) | 0.38 kg |
-   | Learned model, all signals | 0.09 kg | — |
-   | Static speed/gear-pump mass balance | 0.55 kg | — |
+   | Learned model, all signals | 0.090 kg | 0.144 kg |
+   | Static speed/gear-pump mass balance | 0.43 kg | 0.47 kg |
 
-   - **Batch events:** without them the EKF error rises to 0.29 kg, because a viscosity
+   - **Batch events:** without them the EKF error rises to 0.31 kg, because a viscosity
      change is then misread as a feed change.
    - **Learned models need labels.** Their training targets were the simulator's true mass.
      On a real line every label is a weighed purge, while the EKF needs none.
@@ -86,12 +93,16 @@ and paired comparisons. Uncertainties are ±2 standard deviations across runs.
    once labelled purges exist. The recommended route is the physics EKF using the head pressure
    the loop already measures. It is the most accurate and robust option that needs no labels.
 
-   **Weak point.** At the end of a run-out the EKF overestimates the last 0.2–0.35 kg by
-   **0.43 kg on average** (max 0.62). This misses SPS-312 in 3 of 12 run-outs; the learned
-   models are better there.
-5. **Fits the PLC.** The worst-case added execution is **1.65 ms per 100 ms cycle** at datasheet
-   instruction times. The EKF filter call is 1.60 ms. With a 3× margin this is 4.95 ms, within
-   the 5 ms allocation.
+   **Run-out (revision B).** At the starvation point the screw still holds 0.20–0.35 kg.
+   - **Accuracy:** the EKF error there is **−0.02 to +0.04 kg** in all 12 run-outs, and SPS-312
+     is met. Revision A was +0.33 to +0.62 kg. The cause was first-order transport smearing the
+     emptying front; superbee TVD transport fixed it (§13).
+   - **Uncertainty:** the reported ±2σ band contains the truth **99.9 %** of the time in range
+     (worst run 98.9 %) and 97.7 % out of range (worst 91.4 %). The uncertainty is
+     conservative, not over-confident.
+5. **Fits the PLC.** The worst-case added execution is **1.46 ms per 100 ms cycle** at datasheet
+   instruction times. The EKF filter call is 1.42 ms. With a 3× margin this is 4.39 ms, within
+   the 5 ms allocation (§7.1).
    - All four SCL blocks compile in TIA Portal V18 with **0 errors, 0 warnings**.
    - They match the Python references in float32.
    - Float32 broke the RST's static-gain identity and caused an offset of several bar. The
@@ -387,15 +398,22 @@ EXP or LN (assumed).
 
 | Allocation in the 100 ms OB30 frame | Count-based estimate | Allocated (estimate × 3 margin, [W] p.669) |
 |---|---|---|
-| FB_FillEKF (filter call, every 5th cycle: 3781 Real ops, 7251 integer/loop, 3009 moves, 5 EXP/LN) | 1603 µs | 4.81 ms |
+| FB_FillEKF v0.2 (filter call, every 5th cycle: 3256 Real ops, 6690 integer/loop, 2622 moves, 5 EXP/LN) | 1416 µs | 4.25 ms |
 | FB_PressureRST (103 Real ops) | 35 µs | 0.11 ms |
 | FB_PressurePID (runs instead of RST) | 9 µs | — |
 | FB_PressureSupervisor | 3 µs | 0.01 ms |
-| **Total of the new functions** | 1650 µs (1.6 % of the cycle) | **4.95 ms ≤ 5 ms (SPS-361)** |
+| **Total of the new functions** | 1464 µs (1.5 % of the cycle) | **4.39 ms ≤ 5 ms (SPS-361)** |
 
-The allocation is tight because of the EKF. If the on-target measurement (VT-07) exceeds it,
-the covariance update can be split over the 5 calls between filter steps, which divides the
-peak by about 5. Nothing else needs to change.
+**How revision B stayed inside the budget.**
+- **The overrun.** The superbee transport first pushed the margined total to 5.08 ms, 2 % over
+  the allocation. [W] P31.2 (p.667) asks for a risk threshold that triggers mitigation; this
+  was it.
+- **Two changes brought it back to 4.39 ms**, without changing the filter result
+  (`test_ekf_scl_matches_reference` still passes):
+  - only the upper triangle of the symmetric F P Fᵀ is computed;
+  - the mass σ uses a precomputed weight vector instead of a branchy 15 × 15 loop.
+- **Remaining reserve.** If the on-target measurement (VT-07) still exceeds the allocation,
+  the covariance update can be spread over the 4 idle calls between filter steps.
 | Reserve kept at system level ([W] Fig. 31.1, p.670/700) | | ≥ 95 ms for the rest of the line program |
 
 **Why a 3× margin.** The datasheet figures are typical times for simple instructions. Indexed
@@ -425,10 +443,10 @@ written as a *window* requirement and not as a variance requirement.
 
 | Contributor | Effect on mass estimate |
 |---|---|
-| Unknown viscosity of a new batch (no batch event) | RMSE rises from 0.11 to 0.29 kg (§9, F7) |
+| Unknown viscosity of a new batch (no batch event) | RMSE rises from 0.09 to 0.31 kg (§9, F7) |
 | Rheology mismatch (estimator n, b vs truth: 0.25/0.010 vs 0.2226/0.0089) | absorbed by θ in steady state; transient error inside the SPS-311 figure |
 | Gear-pump fill-curve error (+10 % P_fill) | biases the steady-state fill; inside the SPS-311 figure |
-| Reduced resolution (12 vs 80 compartments) | smooths the run-out front; dominates the SPS-312 error (mean +0.43 kg at the starvation point) |
+| Reduced resolution (12 vs 80 compartments) | with first-order transport it smeared the run-out front (+0.43 kg mean error at the starvation point, rev. A). The TVD transport of rev. B removes most of it (§13). |
 
 ---
 
@@ -541,7 +559,7 @@ estimates (TBD-7). [W] P34.12 (p.740/770): RMA figures are estimates.
 | F4 | Pressure transducer | Noisy / damaged diaphragm | Speed noise | Gauge noise, drive wear | RMS of innovation > limit | Alarm; PID fallback with lower gain | 4 | 2 | 4 | 32 |
 | F5 | Drive torque (IF-02) | Telegram loss / implausible | Estimator blind | FF wrong | Telegram valid bit, range | FF off → mode 2 (SPS-322) | 4 | 3 | 1 | 12 |
 | F6 | Drive torque | Scaling changed (drive parameter edit) | θ estimate jumps | Mass estimate biased | θ outside the plausible band after transit | Alarm "torque scaling", FF off | 4 | 2 | 5 | 40 |
-| F7 | Line records (IF-06) | Batch event missing | Viscosity read as feed change | FF pushes the wrong way during transit | Only afterwards (pressure innovation) | Estimator error quantified (0.29 kg without events vs 0.11 kg with them); request the event as a dependency (Q4) | 5 | 5 | 7 | **175** |
+| F7 | Line records (IF-06) | Batch event missing | Viscosity read as feed change | FF pushes the wrong way during transit | Only afterwards (pressure innovation) | Estimator error quantified (0.31 kg without events vs 0.09 kg with them); request the event as a dependency (Q4) | 5 | 5 | 7 | **175** |
 | F8 | Gear-pump speed (IF-05) | Wrong scaling | Wrong balance speed | FF bias | Feedback integrator absorbs it; FF deviation > 3 rpm alarm | FF uses *changes* only (OB30) | 3 | 2 | 4 | 24 |
 | F9 | Feed strip | Break / end of strip | Fill falls at the feed | Pressure collapses 30–40 s later | **Early** via torque (EKF), then low-pressure alarm | Operator warning before the pressure drops | 6 | 4 | 2 | 48 |
 | F10 | RST parameters | Wrong or corrupt download | Offset or instability | Pressure off target | Startup check that T(1) = R(1) and S(1) = 0 (see note) | Fall back to PID | 7 | 2 | 3 | 42 |
@@ -554,7 +572,7 @@ identities in its code structure. This is verified by `test_rst_scl_matches_refe
 
 **Highest RPNs.**
 - **F7 (missing batch event).** Measured mitigation: the EKF error without batch events is
-  0.29 kg, against 0.11 kg with them.
+  0.31 kg, against 0.09 kg with them.
 - **F3 (transducer drift).** Mitigation: a calibration procedure, and the EKF innovation
   trend used for condition-based maintenance.
 
@@ -608,9 +626,9 @@ The utilities are linear; the ranges and the reason for each judgement score are
 | Alternative | Regulation (p99) | Robustness (worst Ms) | Degradation | PLC load | Maintainability | Impl. risk | **FOM** |
 |---|---|---|---|---|---|---|---|
 | PID (robust retune) | 0.98 (1.05 bar) | 0.57 (1.60) | 0.60 | 1.00 | 1.00 | 1.00 | **89.0** |
-| PID + fill feedforward | 1.00 (0.77 bar) | 0.57 (1.60) | 0.90 | 0.83 | 0.80 | 0.70 | **82.4** |
+| PID + fill feedforward | 1.00 (0.78 bar) | 0.57 (1.60) | 0.90 | 0.83 | 0.80 | 0.70 | **82.4** |
 | RST | 0.97 (1.09 bar) | 0.76 (1.46) | 0.60 | 0.99 | 0.60 | 0.80 | **80.5** |
-| RST + fill feedforward | 1.00 (0.84 bar) | 0.76 (1.46) | 0.90 | 0.83 | 0.50 | 0.60 | **77.8** |
+| RST + fill feedforward | 1.00 (0.83 bar) | 0.76 (1.46) | 0.90 | 0.83 | 0.50 | 0.60 | **77.8** |
 | MPC (DMC) | 0.80 (1.60 bar) | 0.30 (n/a) | 0.60 | 0.75 | 0.30 | 0.40 | **54.0** |
 
 **Sensitivity** ([W] §32.7). No single ±10 % weight change moves the winner.
@@ -624,7 +642,7 @@ ranking depends on.
 - **Actuator wear.** Adding a 10-point actuator-wear factor keeps PID first and moves RST to
   second.
 - **What decides it.** The choice between PID and PID+FF depends on one stakeholder value: how
-  much a ~26 % cut in pressure peaks is worth when gauge spread is already only ~0.05 %. That
+  much a ~25 % cut in pressure peaks is worth when gauge spread is already only ~0.05 %. That
   value has to come from the plant (TBD-1, TBD-3).
 - **RST does not win under any test.** On this model its advantages are margin, wear and
   setpoint tracking, not regulation.
@@ -643,19 +661,21 @@ The factors and weights:
 
 | Alternative | In range | Out of range | At run-out point | Sensors | Explainability | **FOM** |
 |---|---|---|---|---|---|---|
-| **Physics EKF** (torque + pressure + batch events) | 0.112 kg | 0.160 kg | 0.43 kg | 0.7 | 0.8 | **81.5** |
-| MLP, all signals | 0.087 kg | 0.148 kg | 0.08 kg | 0.7 | 0.2 | **78.1** |
-| Ridge, all signals | 0.215 kg | 0.295 kg | 0.93 kg | 0.7 | 0.5 | 59.0 |
-| MLP, torque/power/rpm (topic 3 literal) | 0.293 kg | 0.376 kg | 0.12 kg | 1.0 | 0.2 | 57.5 |
-| Ridge, torque/power/rpm | 0.371 kg | 0.492 kg | 1.22 kg | 1.0 | 0.5 | 40.0 |
-| Static mass balance | 0.555 kg | 0.533 kg | 3.61 kg | 1.0 | 1.0 | 31.0 |
+| **Physics EKF** (torque + pressure + batch events) | 0.093 kg | 0.145 kg | 0.02 kg | 0.7 | 0.8 | **87.0** |
+| MLP, all signals | 0.090 kg | 0.144 kg | 0.14 kg | 0.7 | 0.2 | **77.7** |
+| Ridge, all signals | 0.200 kg | 0.281 kg | 0.84 kg | 0.7 | 0.5 | 61.5 |
+| MLP, torque/power/rpm (topic 3 literal) | 0.293 kg | 0.375 kg | 0.13 kg | 1.0 | 0.2 | 57.5 |
+| Static mass balance | 0.426 kg | 0.470 kg | 3.61 kg | 1.0 | 1.0 | 42.0 |
+| Ridge, torque/power/rpm | 0.370 kg | 0.492 kg | 1.24 kg | 1.0 | 0.5 | 39.8 |
 
 **Sensitivity.** No single ±10 % weight change moves the winner.
 
-**What the table does not show: labels.** The MLP almost ties with the EKF, but its accuracy
-was bought with training labels the simulator gave for free. On a line, labels cost one weighed
-purge each. For the same reason the learned models only beat the EKF at the run-out point
-because run-outs were in their training set. The plan therefore has three steps:
+**Revision A.** Before the transport fix the EKF scored 81.5 against the MLP's 78.1. Its
+run-out error then was 0.43 kg; it is now 0.02 kg.
+
+**What the table does not show: labels.** The MLP on all signals matches the EKF's RMSE, but
+its accuracy was bought with training labels the simulator gave for free. On a line, labels
+cost one weighed purge each. The plan therefore has three steps:
 1. Deploy the EKF.
 2. Log weighed purges (VT-02, VT-08).
 3. Train a learned *residual* on top of the EKF once enough labels exist, combining the two
@@ -672,8 +692,8 @@ because run-outs were in their training set. The plan therefore has three steps:
    - **Add a setpoint filter**, so start-up ramps do not overshoot (SPS-304).
    - **Cost and benefit:** cheap, and it removes the dependence on manual tuning.
 3. **Offer two candidates in the line trial**, each against the retuned PID (VT-04, VT-05):
-   - **PID or RST with fill feedforward:** expected −26 % at the 99th percentile of the
-     pressure deviation, at the price of +15 % actuator travel.
+   - **PID or RST with fill feedforward:** expected −22 to −28 % at the 99th percentile of the
+     pressure deviation, at the price of +15–17 % actuator travel.
    - **RST alone:** expected equal regulation, Ms 1.46 instead of 1.60, −13 % actuator travel.
 4. **Let the plant decide on topic 2 from its own data.** This study does not support the
    premise that polynomial control will regulate better than a well-tuned PID on this plant.
@@ -702,13 +722,13 @@ need. Verification here uses the fewest and cheapest methods that are sufficient
 | SPS-304 | A + T | results/study.md §3, 4-bar step columns | RST met (8.0 s, 0 bar); PID alone fails the overshoot (1.66 bar), PID with setpoint filter met (8.4 s, 0 bar); T open |
 | SPS-305 | A + T | results/study.md §3 (ripple, noise columns) | A met; T open |
 | SPS-306 | T + D | `tests/test_scl.py` (tracking on Enable = FALSE) | T met (SCL); D open (PLCSIM/HMI) |
-| SPS-311 | A + T | results/study.md §5 | A: threshold met (EKF mean 0.112 kg, worst run 0.241 kg); objective of 0.15 kg met on the mean only; T open |
-| SPS-312 | A + T | results/study.md §5 run-out table | A: **not met**, error > 0.5 kg in 3 of 12 run-outs (max 0.62 kg); improvement listed in §13; T open |
-| SPS-313 | I + A | `MassSigma` output; ±2σ band in `scenario_timeline.png` | I met; A coverage statistic open |
+| SPS-311 | A + T | results/study.md §5 | A: threshold and objective met (EKF mean 0.093 kg, worst run 0.116 kg); T open |
+| SPS-312 | A + T | results/study.md §5 run-out table | A: met in all 12 run-outs (−0.02 … +0.04 kg; revision A missed it with up to 0.62 kg, see §13); T open |
+| SPS-313 | I + A | `MassSigma` output; results/study.md §5 coverage line | I met. A: truth within ±2σ for 99.9 % of the time in range and 97.7 % out of range (conservative) |
 | SPS-321 | T | `test_supervisor_fallbacks`, `test_frozen_pressure_detected` | met (SCL in translator); PLCSIM open |
 | SPS-322 | T | `test_supervisor_fallbacks` | met (SCL); PLCSIM open |
 | SPS-323 | T | `test_supervisor_fallbacks` | met (SCL); PLCSIM open |
-| SPS-361 | A + T | §7.1 budget; on-target cycle statistics | A met; T open |
+| SPS-361 | A + T | §7.1 budget; on-target cycle statistics | A met (4.39 ms with 3× margin); T open |
 | SPS-362 | I + T | results/tia_compile*.txt, docs/img/tia_FB_PressureRST.png | **Met** (9 Nov 2026): 0 errors, 0 warnings for all blocks, OB30 at 100 ms |
 | SPS-363 | I | §6 interface table | met |
 | SPS-364 | D | `ident.step_test` (120 s, ±0.3 rpm) | A met; D open |
@@ -724,7 +744,8 @@ need. Verification here uses the fewest and cheapest methods that are sufficient
    The translator is the author's own, and covers only the SCL subset used. TIA Portal is the
    authority.
 2. **TIA Portal V18 compile (V02).** Done on 9 Nov 2026 through TIA Openness, using
-   `scripts/tia_build.ps1` and `tia_ob30.ps1`.
+   `scripts/tia_build.ps1` and `tia_ob30.ps1`. It was repeated on 10 Nov for revision B, with
+   FB_FillEKF v0.2 (superbee transport and the leaner covariance loops).
    - **Target:** S7-1513-1 PN, FW 2.9.
    - **Compiled with 0 errors and 0 warnings:**
      - FB_PressurePID (FB1), FB_PressureRST (FB2), FB_FillEKF (FB3) and FB_PressureSupervisor (FB4);
@@ -732,10 +753,14 @@ need. Verification here uses the fewest and cheapest methods that are sufficient
      - the five DBs;
      - `Cyclic_Pressure` as a real OB30 cyclic interrupt at 100 ms.
    - **Evidence:** the logs are `results/tia_compile.txt` and `results/tia_compile_ob30.txt`.
-     The screenshot is `docs/img/tia_FB_PressureRST.png`.
+     The screenshots are `docs/img/tia_FB_PressureRST.png` (9 Nov) and
+     `docs/img/tia_FB_FillEKF.png` (10 Nov).
 
    ![FB_PressureRST in TIA Portal V18, compile 0 errors 0 warnings](docs/img/tia_FB_PressureRST.png)
 3. **Not yet: PLCSIM (V03), on-target timing, line trial.**
+   - **PLCSIM:** checked on 10 Nov. S7-PLCSIM is not installed for any of the TIA versions on
+     this PC (V16, V18, V20). Installing it needs a Siemens Industry Online Support login.
+   - **The other two:** on-target timing and the line trial need the plant's hardware.
 
 ### 11.3 Line-trial plan (validation)  ([W] P13.13, p.284/314; SITE, ch. 28)
 
@@ -800,12 +825,27 @@ closed loop. Integration is incremental, one capability at a time ([W] P28.1, p.
   is the honest feasibility signal. Their in-range accuracy says little about real data.
 - **The PLC timing is an estimate** from operation counts and datasheet figures. It is not a
   measurement.
-- **The EKF misses SPS-312 at the end of a run-out.** It overestimates the last few hundred
-  grams by 0.33–0.62 kg. The likely cause is the coarse 12-compartment grid smearing the
-  emptying front. Candidate fixes, none of them tried:
-  - a finer grid in the last third of the channel;
-  - a dedicated run-out mode that tracks the empty front explicitly;
-  - the learned residual of §10.2.
+- **Run-out accuracy (fixed in revision B).** Revision A's EKF overestimated the last few
+  hundred grams of a run-out by 0.33–0.62 kg, which missed SPS-312.
+  - **Diagnosis:** the first-order upwind transport on the 12-compartment grid smeared the
+    emptying front over about 8 compartments. The plant's own front was 1–2 compartments wide.
+    The filter was also over-confident there (σ ≈ 0.04 kg against a 0.4 kg error).
+  - **Fix:** a second-order TVD transport with the superbee limiter (LeVeque 2002, ch. 6), plus
+    fill process noise that grows with the local fill step.
+  - **Cost:** the state stays at 15. F keeps two non-zeros per row, because the limiter is left
+    out of the linearisation. The cost is a few hundred extra operations per filter call.
+  - **Result:** see §0 and results/study.md §5. On its own, with four seeds and 92 % feed
+    before the run-out, the run-out error fell from 0.38 kg to 0.01–0.02 kg.
+- **A simulator defect was found and fixed in revision B.** It concerned the truth model, not
+  the estimator.
+  - **The bug:** when a run-out emptied the screw, the filled-zone length was clamped at its
+    2 mm minimum. That clamp created material, so the screw kept "pumping" and the head held
+    about 9 bar with nothing in the screw.
+  - **How it showed:** the EKF then invented 0.5–0.7 kg to explain the 9 bar.
+  - **The fix:** the screw now delivers only what is available.
+    `test_empty_screw_creates_no_material` guards it.
+  - **What it affected:** only the tails of the run-outs, after starvation. The controller
+    numbers in §0 did not change.
 - **Not every disturbance was varied.** The Monte Carlo covers feed, viscosity, line speed and
   barrel temperature. It does not cover transducer drift (F3) or a change of die or gear pump.
 

@@ -246,12 +246,19 @@ class Extruder:
             k = min(max(self.front_index() - 1, 0), p.cells - 1)
             f_front = self._fl[k]
             # fill front: (1 - f_front) A dZf/dt = f_front Qd - Qs
+            zf_min = 2e-3
             denom = max(1.0 - f_front, 0.05) * s.A
             dZf = (f_front * Qd - Qs) / denom
             Zf_new = Zf + dZf * hs
             if Zf_new >= s.Z:  # flooded: the whole section is full
                 Zf_new = s.Z
-            Zf_new = max(Zf_new, 2e-3)
+            if Zf_new < zf_min:
+                # The filled zone is empty, so the screw delivers only what is available: the
+                # inflow at the front plus what is left above the minimum length. Before 0.2.0
+                # the length was clamped instead. That created material and held the head at
+                # about 9 bar after a run-out had emptied the screw.
+                Qs = f_front * Qd + (Zf - zf_min) * denom / hs
+                Zf_new = zf_min
             # head pressure
             dP = p.B_eff / p.V_head * (Qs - self.q_out(P, T))
             P_new = max(P + dP * hs, 0.0)

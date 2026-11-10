@@ -90,3 +90,5 @@ Every value or relation in the repo is tagged with one of these source states:
   - Work memory: 300 kbyte for program, 1.5 Mbyte for data.
 - **[P2]** Siemens TIA Portal V18 with STEP 7 Professional. The compile results come from this
   installation through TIA Openness.
+- **[C10]** R. J. LeVeque, *Finite Volume Methods for Hyperbolic Problems*, Cambridge University
+  Press, 2002, Ch. 6 (high-resolution methods, flux limiters, superbee). **[std]**

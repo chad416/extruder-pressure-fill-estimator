@@ -623,6 +623,14 @@ def main() -> None:  # noqa: C901
     txt.append(md_table(["estimator", "mean RMSE kg", "2 std kg", "worst run kg"], est_in) + "\n")
     txt.append(f"\nOut-of-range viscosity (kappa 0.6-1.5; {len(ood_ekf)} runs; learned models trained on 0.8-1.25):\n\n")
     txt.append(md_table(["estimator", "mean RMSE kg", "2 std kg", "worst run kg"], est_ood) + "\n")
+    cov_in = [float(np.mean(np.abs(lg.arr("M_hat")[60:] - lg.arr("M")[60:]) <= 2 * lg.arr("M_sig")[60:]))
+              for lg in test_logs]
+    cov_ood = [float(np.mean(np.abs(lg.arr("M_hat")[60:] - lg.arr("M")[60:]) <= 2 * lg.arr("M_sig")[60:]))
+               for lg in ood_ekf]
+    txt.append(f"\nEKF uncertainty calibration (SPS-313): the truth lies within +-2 sigma for "
+               f"{100 * np.mean(cov_in):.1f} % of the logged seconds in range "
+               f"(worst run {100 * min(cov_in):.1f} %) and {100 * np.mean(cov_ood):.1f} % out of range "
+               f"(worst {100 * min(cov_ood):.1f} %). A well-calibrated Gaussian estimate gives about 95 %.\n")
     txt.append("\nRun-out (feed stopped, screw still turning). Error = estimate - truth:\n\n")
     txt.append(md_table(["run", "M at P < 25 bar", "EKF error", "mass-balance error", "M at end", "EKF error end",
                          "mass-balance error end"], ro_rows) + "\n")

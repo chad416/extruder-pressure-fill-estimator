@@ -17,9 +17,9 @@ Judgement scores and their reasons:
 | alternative | regulation (30) | robustness (15) | degradation (10) | PLC load (10) | maintainability (20) | implementation risk (15) | FOM |
 |---|---|---|---|---|---|---|---|
 | PID | 0.98 (p99 1.05 bar) | 0.57 (Ms 1.60) | 0.60 | 1.00 (0.02 ms) | 1.00 | 1.00 | **89.0** |
-| PID+FF | 1.00 (p99 0.77 bar) | 0.57 (Ms 1.60) | 0.90 | 0.83 (1.7 ms) | 0.80 | 0.70 | **82.4** |
+| PID+FF | 1.00 (p99 0.78 bar) | 0.57 (Ms 1.60) | 0.90 | 0.83 (1.7 ms) | 0.80 | 0.70 | **82.4** |
 | RST | 0.97 (p99 1.09 bar) | 0.76 (Ms 1.46) | 0.60 | 0.99 (0.05 ms) | 0.60 | 0.80 | **80.5** |
-| RST+FF | 1.00 (p99 0.84 bar) | 0.76 (Ms 1.46) | 0.90 | 0.83 (1.7 ms) | 0.50 | 0.60 | **77.8** |
+| RST+FF | 1.00 (p99 0.83 bar) | 0.76 (Ms 1.46) | 0.90 | 0.83 (1.7 ms) | 0.50 | 0.60 | **77.8** |
 | MPC | 0.80 (p99 1.60 bar) | 0.30 (not analysed) | 0.60 | 0.75 (2.5 ms) | 0.30 | 0.40 | **54.0** |
 
 Sensitivity:
@@ -28,7 +28,7 @@ Sensitivity:
 
 Assumption tests (not a re-scoring; they show what the ranking depends on):
 
-- Regulation utility stretched to the observed range (1.6 bar -> 0, 0.7 bar -> 1): ranking PID+FF 80.1, PID 77.8, RST+FF 73.2, RST 68.3, MPC 30.0.
+- Regulation utility stretched to the observed range (1.6 bar -> 0, 0.7 bar -> 1): ranking PID+FF 79.8, PID 77.8, RST+FF 73.4, RST 68.3, MPC 30.0.
 - Adding an actuator-wear factor (10 points; speed travel 13 rpm/min -> 0, 7 -> 1; traces to MOS-1): ranking PID 84.6, RST 78.8, PID+FF 76.2, RST+FF 73.7, MPC 56.4.
 - Regulation weight 40 with the stretched utility: winner PID+FF.
 - Regulation weight 50 with the stretched utility: winner PID+FF.
@@ -40,12 +40,12 @@ Utility: RMSE 0.6 kg -> 0, 0.05 kg -> 1 (in and out of the training viscosity ra
 
 | alternative | accuracy in range (35) | accuracy out of range (25) | run-out accuracy (15) | sensors needed (10) | explainability (15) | FOM |
 |---|---|---|---|---|---|---|
-| EKF | 0.89 (0.112 kg) | 0.80 (0.160 kg) | 0.76 (0.43 kg) | 0.70 | 0.80 | **81.5** |
-| MLP full | 0.93 (0.087 kg) | 0.82 (0.148 kg) | 1.00 (0.08 kg) | 0.70 | 0.20 | **78.1** |
-| ridge full | 0.70 (0.215 kg) | 0.56 (0.295 kg) | 0.41 (0.93 kg) | 0.70 | 0.50 | **59.0** |
-| MLP tpr | 0.56 (0.293 kg) | 0.41 (0.376 kg) | 0.99 (0.12 kg) | 1.00 | 0.20 | **57.5** |
-| ridge tpr | 0.42 (0.371 kg) | 0.20 (0.492 kg) | 0.20 (1.22 kg) | 1.00 | 0.50 | **40.0** |
-| static mass balance | 0.08 (0.555 kg) | 0.12 (0.533 kg) | 0.00 (3.61 kg) | 1.00 | 1.00 | **31.0** |
+| EKF | 0.92 (0.093 kg) | 0.83 (0.145 kg) | 1.00 (0.02 kg) | 0.70 | 0.80 | **87.0** |
+| MLP full | 0.93 (0.090 kg) | 0.83 (0.144 kg) | 0.97 (0.14 kg) | 0.70 | 0.20 | **77.7** |
+| ridge full | 0.73 (0.200 kg) | 0.58 (0.281 kg) | 0.47 (0.84 kg) | 0.70 | 0.50 | **61.5** |
+| MLP tpr | 0.56 (0.293 kg) | 0.41 (0.375 kg) | 0.98 (0.13 kg) | 1.00 | 0.20 | **57.5** |
+| static mass balance | 0.32 (0.426 kg) | 0.24 (0.470 kg) | 0.00 (3.61 kg) | 1.00 | 1.00 | **42.0** |
+| ridge tpr | 0.42 (0.370 kg) | 0.20 (0.492 kg) | 0.19 (1.24 kg) | 1.00 | 0.50 | **39.8** |
 
 Sensitivity:
 

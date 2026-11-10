@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0 (10 Nov 2026)
+
+- **EKF (Python and FB_FillEKF v0.2):**
+  - The fill transport now uses a second-order TVD scheme (superbee) instead of first-order
+    upwind.
+  - Fill process noise now grows with the local fill step.
+  - Together these fix the run-out overestimate of 0.1.0, which was 0.33–0.62 kg at the
+    starvation point and missed SPS-312. They also give the ±2σ band honest coverage.
+- **Plant:** when the filled zone empties, the screw now delivers only the material that is
+  available. In 0.1.0 a clamp on the filled-zone length created material, which held the head
+  at about 9 bar after a run-out.
+- **Study:** adds the SPS-313 coverage statistic. Results are re-run.
+- **TIA V18:** recompiled with 0 errors and 0 warnings. The new screenshot is
+  `docs/img/tia_FB_FillEKF.png`.
+- **Tests:** a run-out regression test and an empty-screw mass test.
+
 ## 0.1.0 (10 Nov 2026)
 
 - Extruder model:

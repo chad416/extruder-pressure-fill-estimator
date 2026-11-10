@@ -33,7 +33,7 @@ paired comparisons.
 
 3. **The fill estimator is where the gain is.** A feed change reaches the pressure about 35 s
    after the torque has already seen it. Feedforward from the estimate cuts the
-   99th-percentile deviation by about 26 %, better in 23 of 24 runs.
+   99th-percentile deviation by 22–28 % (PID+FF better in 21 of 24 runs, RST+FF in 23 of 24).
 
    ![Closed-loop Monte Carlo](docs/img/closed_loop_mc.png)
 
@@ -41,16 +41,18 @@ paired comparisons.
 
    | Estimator | RMSE in range | RMSE out of training range | Needs labels? |
    |---|---|---|---|
-   | Physics EKF | 0.11 kg | 0.16 kg | no |
+   | Physics EKF | 0.093 kg | 0.145 kg | no |
    | MLP on torque, power and rpm only | 0.29 kg | 0.38 kg | yes |
 
-   Without batch-change events the EKF error rises to 0.29 kg. Its weak point is the last
-   0.3 kg of a run-out, where it overestimates by 0.43 kg on average.
+   - **Batch-change events:** without them the EKF error rises to 0.31 kg.
+   - **Run-out:** at the point the gear pump starts to starve, the EKF is within ±0.04 kg in all
+     12 run-outs. Version 0.1.0 was up to 0.62 kg off. Second-order transport fixed it.
+   - **Uncertainty:** the reported ±2σ band holds the truth 99.9 % of the time.
 
    ![Estimator errors](docs/img/estimator_errors.png)
 
 5. **PLC fit.**
-   - **Budget:** 1.65 ms per 100 ms cycle at datasheet instruction times.
+   - **Budget:** 1.46 ms per 100 ms cycle at datasheet instruction times, 4.4 ms with a 3× margin.
    - **Compile:** all SCL blocks compile in TIA Portal V18 with 0 errors and 0 warnings.
    - **Float32 checks:** the float32 runs match the Python references.
    - **A defect float32 exposed:** rounding the RST coefficients to float32 broke T(1) = R(1),

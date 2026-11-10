@@ -2,7 +2,7 @@ FUNCTION_BLOCK "FB_FillEKF"
 TITLE = Screw-fill estimator (EKF) and feedforward speed
 { S7_Optimized_Access := 'TRUE' }
 AUTHOR : chad416
-VERSION : 0.1
+VERSION : 0.2
 //  Extended Kalman filter on the reduced screw model of xtrude.estimator.FillEKF:
 //  - State x[0..11]: fill of 12 channel compartments. x[12]: fill at the feed opening.
 //    x[13]: consistency theta (Pa s^n). x[14]: fully filled length Zf (m).
@@ -15,6 +15,8 @@ VERSION : 0.1
 //    most two non-zeros per row, so P := F P F' + Q costs O(n^2) and not O(n^3).
 //  - The float64 reference is xtrude.estimator.FillEKF. tests/test_scl.py runs both on
 //    the same signals.
+//  - Version 0.2: superbee transport plus front-dependent process noise. This fixes the
+//    run-out overestimate of version 0.1 (DOSSIER section 13).
    VAR_INPUT
       Reset : Bool;   // TRUE: re-initialise state and covariance
       Nrpm : Real;   // measured screw speed, rpm
@@ -53,6 +55,7 @@ VERSION : 0.1
       QthRel : Real := 0.002;
       QthBatchRel : Real := 0.04;
       Qzf : Real := 0.005;
+      QFront : Real := 0.10;   // extra fill noise per unit fill step between compartments
    END_VAR
 
    VAR_OUTPUT
@@ -74,6 +77,9 @@ VERSION : 0.1
       Hm : Array[0..29] of Real;   // H, 2 x 15, row-major
       PHt : Array[0..29] of Real;   // P H', 15 x 2
       Kg : Array[0..29] of Real;   // gain, 15 x 2
+      ext : Array[0..13] of Real;   // fill profile with two inflow ghost cells
+      flux : Array[0..12] of Real;   // fill flux at the 13 compartment faces
+      gw : Array[0..14] of Real;   // mass-sensitivity weights (per Rho*Area)
       sCount : Int;
       sBatchTimer : Real;
       sInit : Bool;
@@ -184,14 +190,34 @@ BEGIN
 	    END_IF;
 	    #fOffCol[14] := 11;
 	    #fOff[14] := #tTs * (#tQd - #tQout) / ((1.0 - #tFm) * (1.0 - #tFm) * #Area);
-	    // state: upwind advection, then the fill-front balance
+	    // state: fill-front balance, then superbee TVD transport of the fill profile
+	    // (keeps a run-out front ~2 compartments wide; first-order upwind smeared it over ~8
+	    // and over-estimated the last kilograms of a run-out by ~0.4 kg)
 	    #tZf := #x[14] + #tTs * (#tFm * #tQd - #tQout) / ((1.0 - #tFm) * #Area);
-	    #tPrev := #x[0];
-	    #x[0] := #x[0] + #tCfl * (#tFin - #x[0]);
-	    FOR #i := 1 TO 11 DO
-	        #tCur := #x[#i];
-	        #x[#i] := #tCur + #tCfl * (#tPrev - #tCur);
-	        #tPrev := #tCur;
+	    #ext[0] := #tFin;
+	    #ext[1] := #tFin;
+	    FOR #i := 0 TO 11 DO
+	        #ext[#i + 2] := #x[#i];
+	    END_FOR;
+	    FOR #i := 0 TO 12 DO
+	        #k := #i + 1;   // upwind cell of face i in ext
+	        IF #i = 0 OR #i = 12 THEN
+	            #flux[#i] := #ext[#k];
+	        ELSE
+	            #tE0 := #ext[#k] - #ext[#k - 1];
+	            #tE1 := #ext[#k + 1] - #ext[#k];
+	            IF ABS(#tE1) < 1.0E-12 THEN
+	                #tG := 0.0;
+	            ELSE
+	                #tVar := #tE0 / #tE1;
+	                #tG := MAX(IN1 := 0.0, IN2 := MAX(IN1 := MIN(IN1 := 2.0 * #tVar, IN2 := 1.0),
+	                                                  IN2 := MIN(IN1 := #tVar, IN2 := 2.0)));
+	            END_IF;
+	            #flux[#i] := #ext[#k] + 0.5 * (1.0 - #tCfl) * #tG * #tE1;
+	        END_IF;
+	    END_FOR;
+	    FOR #i := 0 TO 11 DO
+	        #x[#i] := #ext[#i + 2] - #tCfl * (#flux[#i + 1] - #flux[#i]);
 	    END_FOR;
 	    #x[14] := LIMIT(MN := 0.001, IN := #tZf, MX := #Zmax);
 	    FOR #i := 0 TO 12 DO
@@ -207,13 +233,15 @@ BEGIN
 	            #A[#i * 15 + #j] := #tSum;
 	        END_FOR;
 	    END_FOR;
+	    // F P F' is symmetric: compute the upper triangle and mirror it (120 of 225 entries)
 	    FOR #i := 0 TO 14 DO
-	        FOR #j := 0 TO 14 DO
+	        FOR #j := #i TO 14 DO
 	            #tSum := #A[#i * 15 + #j] * #fDiag[#j];
 	            IF #fOffCol[#j] >= 0 THEN
 	                #tSum := #tSum + #A[#i * 15 + #fOffCol[#j]] * #fOff[#j];
 	            END_IF;
 	            #P[#i * 15 + #j] := #tSum;
+	            #P[#j * 15 + #i] := #tSum;
 	        END_FOR;
 	    END_FOR;
 	    IF #sBatchTimer > 0.0 THEN
@@ -222,8 +250,16 @@ BEGIN
 	        #tQth := #QthRel * #x[13];
 	    END_IF;
 	    #sBatchTimer := MAX(IN1 := #sBatchTimer - #tTs, IN2 := 0.0);
+	    // fill noise grows where the profile has a front (model error of the coarse grid)
+	    IF #FeedOn THEN
+	        #tPrev := #x[12];
+	    ELSE
+	        #tPrev := 0.0;
+	    END_IF;
 	    FOR #i := 0 TO 11 DO
-	        #P[#i * 15 + #i] := #P[#i * 15 + #i] + #Qf * #Qf;
+	        #tCur := #QFront * (#x[#i] - #tPrev);
+	        #P[#i * 15 + #i] := #P[#i * 15 + #i] + #Qf * #Qf + #tCur * #tCur;
+	        #tPrev := #x[#i];
 	    END_FOR;
 	    IF #FeedOn THEN
 	        #P[12 * 15 + 12] := #P[12 * 15 + 12] + #Qfin * #Qfin;
@@ -321,31 +357,24 @@ BEGIN
 	    #tL := #Dz * #tSum + #tZf * (1.0 - #tFm);
 	    #Mass := #Rho * #Area * #tL;
 	    // mass sigma: g' P g with g = Rho*Area*[Dz..., Dz - Zf, 0, 0, 1 - fm]
+	    // states 12 and 13 have zero weight, so only rows/columns 0..11 and 14 are visited
+	    FOR #i := 0 TO 11 DO
+	        #gw[#i] := #Dz;
+	    END_FOR;
+	    #gw[11] := #Dz - #tZf;
+	    #gw[12] := 0.0;
+	    #gw[13] := 0.0;
+	    #gw[14] := 1.0 - #tFm;
 	    #tVar := 0.0;
 	    FOR #i := 0 TO 14 DO
-	        IF #i <= 11 THEN
-	            #tG := #Dz;
-	            IF #i = 11 THEN
-	                #tG := #Dz - #tZf;
-	            END_IF;
-	        ELSIF #i = 14 THEN
-	            #tG := 1.0 - #tFm;
-	        ELSE
-	            #tG := 0.0;
+	        IF #i <> 12 AND #i <> 13 THEN
+	            #tE0 := 0.0;
+	            FOR #j := 0 TO 11 DO
+	                #tE0 := #tE0 + #P[#i * 15 + #j] * #gw[#j];
+	            END_FOR;
+	            #tE0 := #tE0 + #P[#i * 15 + 14] * #gw[14];
+	            #tVar := #tVar + #gw[#i] * #tE0;
 	        END_IF;
-	        FOR #j := 0 TO 14 DO
-	            IF #j <= 11 THEN
-	                #tE0 := #Dz;
-	                IF #j = 11 THEN
-	                    #tE0 := #Dz - #tZf;
-	                END_IF;
-	            ELSIF #j = 14 THEN
-	                #tE0 := 1.0 - #tFm;
-	            ELSE
-	                #tE0 := 0.0;
-	            END_IF;
-	            #tVar := #tVar + #tG * #P[#i * 15 + #j] * #tE0;
-	        END_FOR;
 	    END_FOR;
 	    #MassSigma := #Rho * #Area * SQRT(MAX(IN1 := #tVar, IN2 := 0.0));
 	    #FrontFill := #tFm;

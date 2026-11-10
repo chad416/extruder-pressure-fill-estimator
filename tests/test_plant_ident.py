@@ -86,3 +86,15 @@ def test_operating_point_sets_pressure():
     e = operating_point(P_bar=40.0, N_rpm=25.0)
     assert abs(e.truth()["P_bar"] - 40.0) < 0.5
     assert abs(e.N / RPM - 25.0) < 1e-9
+
+
+def test_empty_screw_creates_no_material():
+    """After a run-out empties the screw, the head must drain (0.1.0 held it at ~9 bar)."""
+    from xtrude.control import PIDRuntime
+    e = nominal(seed=2)
+    pid = PIDRuntime(0.108, 0.472, 0.169, 2, 45, 0.5)
+    pid.init(60, e.measure()["P_bar"], 30)
+    e.feed_on = False
+    for _ in range(int(150 / TS)):
+        e.step(pid.step(60, e.measure()["P_bar"]), TS)
+    assert e.P < 1e5 and e.mass() < 0.01

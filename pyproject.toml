@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xtrude"
-version = "0.1.0"
+version = "0.2.0"
 description = "Model-based head-pressure control and screw-fill estimation for a cold-feed rubber extruder, with SCL for TIA Portal"
 readme = "README.md"
 license = { text = "MIT" }
