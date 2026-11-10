@@ -529,11 +529,38 @@ def main() -> None:  # noqa: C901
     est_ood, per_ood = est_rows(ood_ekf)
     # run-out errors
     ro_rows = []
+    ro_ekf, ro_ekf_end, ro_mb = [], [], []
     for i, lg in enumerate(test_logs):
         r_e = runout_error(lg, "M_hat")
         r_m = runout_error(lg, "M_mb")
         if r_e:
             ro_rows.append([i, f(r_e[2], 2), f(r_e[0], 2), f(r_m[0], 2), f(r_e[3], 2), f(r_e[1], 2), f(r_m[1], 2)])
+            ro_ekf.append(r_e[0])
+            ro_ekf_end.append(r_e[1])
+            ro_mb.append(r_m[0])
+    ro_summary = ""
+    if len(ro_ekf) > 1:
+        ra, rb, rc = np.asarray(ro_ekf), np.asarray(ro_ekf_end), np.asarray(ro_mb)
+        ro_summary = (
+            f"\nRun-out summary over {len(ra)} run-outs (signed error, mean +- 2 std):\n"
+            f"- EKF at the starvation point: {ra.mean():+.3f} +- {2 * ra.std(ddof=1):.3f} kg "
+            f"(max |error| {np.abs(ra).max():.3f} kg, SPS-312 threshold 0.5 kg, objective 0.25 kg)\n"
+            f"- EKF at the end of the run-out: {rb.mean():+.3f} +- {2 * rb.std(ddof=1):.3f} kg "
+            f"(max |error| {np.abs(rb).max():.3f} kg)\n"
+            f"- Static mass balance at the starvation point: {rc.mean():+.2f} +- {2 * rc.std(ddof=1):.2f} kg\n")
+        fig, ax = plt.subplots(figsize=(8.6, 2.6))
+        ax.axhspan(-0.25, 0.25, color="#e6e6e6", lw=0)
+        ax.axhline(0, color=MUTED, lw=0.8)
+        ax.plot(np.arange(len(ra)), ra, "o", color=C["RST+FF"], ms=6, label="EKF error at the starvation point")
+        ax.plot(np.arange(len(ra)), rb, "s", color=C["PID"], ms=5, label="EKF error at the end of the run-out")
+        ax.text(len(ra) - 0.6, 0.2, "SPS-312 objective +-0.25 kg", fontsize=7, color=INK, ha="right")
+        ax.set_ylim(-0.3, 0.3)
+        ax.set_xlabel("run-out (one per even-numbered scenario)")
+        ax.set_ylabel("estimate - truth (kg)")
+        ax.legend(fontsize=7, loc="lower left", ncol=2)
+        fig.tight_layout()
+        fig.savefig(IMG / "runout_errors.png", dpi=160)
+        plt.close(fig)
     # summary for scripts/aoa.py: RMSE in/out of range and mean |error| at the run-out point
     short = {"static mass balance (N, gear pump)": "static mass balance",
              "EKF, torque + pressure, batch events": "EKF", "MLP on torque/power/rpm": "MLP tpr",
@@ -634,6 +661,7 @@ def main() -> None:  # noqa: C901
     txt.append("\nRun-out (feed stopped, screw still turning). Error = estimate - truth:\n\n")
     txt.append(md_table(["run", "M at P < 25 bar", "EKF error", "mass-balance error", "M at end", "EKF error end",
                          "mass-balance error end"], ro_rows) + "\n")
+    txt.append(ro_summary)
     txt.append("## 6. PLC cycle budget (CPU 1513-1 PN, OB30 = 100 ms)\n")
     txt.append(budget_tab + "\n")
     txt.append(f"\nSum of the worst-case calls: {budget['total_us']:.0f} us = "

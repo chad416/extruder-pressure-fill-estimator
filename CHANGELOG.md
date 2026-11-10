@@ -15,6 +15,11 @@
 - **TIA V18:** recompiled with 0 errors and 0 warnings. The new screenshot is
   `docs/img/tia_FB_FillEKF.png`.
 - **Tests:** a run-out regression test and an empty-screw mass test.
+- **Documentation:**
+  - run-out error bars (`docs/img/runout_errors.png`);
+  - `TRACEABILITY.md`;
+  - `OPEN_ITEMS.md` with the publish commands;
+  - the dossier decision log (§14).
 
 ## 0.1.0 (10 Nov 2026)
 

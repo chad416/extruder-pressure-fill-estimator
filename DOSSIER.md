@@ -11,6 +11,8 @@ subtitle: "Systems engineering dossier (pre-baseline draft, revision B, 10 Nov 2
 - EKF run-out fix (§13).
 - SPS-313 coverage statistic (§11.1).
 - Meeting questions (§12).
+- Decision log (§14).
+- Run-out error bars and the traceability table (`TRACEABILITY.md`).
 - The numbers in §0 and §10 are re-run.
 
 This dossier follows the structure of C. S. Wasson, *System Engineering Analysis, Design,
@@ -94,8 +96,8 @@ and paired comparisons. Uncertainties are ±2 standard deviations across runs.
    the loop already measures. It is the most accurate and robust option that needs no labels.
 
    **Run-out (revision B).** At the starvation point the screw still holds 0.20–0.35 kg.
-   - **Accuracy:** the EKF error there is **−0.02 to +0.04 kg** in all 12 run-outs, and SPS-312
-     is met. Revision A was +0.33 to +0.62 kg. The cause was first-order transport smearing the
+   - **Accuracy:** the EKF error there is **+0.013 ± 0.029 kg** (mean ± 2σ over 12 run-outs;
+     max |error| 0.035 kg; `docs/img/runout_errors.png`), and SPS-312 is met. Revision A was +0.33 to +0.62 kg. The cause was first-order transport smearing the
      emptying front; superbee TVD transport fixed it (§13).
    - **Uncertainty:** the reported ±2σ band contains the truth **99.9 %** of the time in range
      (worst run 98.9 %) and 97.7 % out of range (worst 91.4 %). The uncertainty is
@@ -851,7 +853,29 @@ closed loop. Integration is incremental, one capability at a time ([W] P28.1, p.
 
 ---
 
-## 14. References
+## 14. Decision log
+
+[W] P32.5 (p.697/727): an undocumented trade study is personal opinion. The same applies to
+the smaller decisions. Each one is recorded here with its reason.
+
+| # | Date | Decision | Reason | Alternatives rejected |
+|---|---|---|---|---|
+| D1 | 9 Nov | Primary plant case: gear-pump inlet pressure; open die kept as the contrast case | With an open die the speed→pressure DC gain is about 0 and its sign is uncertain (§8.3). Pressure control there regulates the wrong variable | Die-only study |
+| D2 | 9 Nov | Identification: output error (OE) on a ±0.3 rpm, 2-minute test | ARX was biased under 0.3 bar noise and flight ripple. At ±1 rpm the gear-pump curve makes the plant nonlinear (85 % fit) | ARX; larger excitation |
+| D3 | 9 Nov | Tune PID and RST on the same 10-variant set under the same constraints | A fair comparison needs a robust baseline, not a strawman PID | Tuning the RST alone and comparing it with a textbook PID |
+| D4 | 9 Nov | No measurement notch | It cost more phase than it saved, because the ripple is only 3–5× above crossover (results §3) | Speed-tracking notch |
+| D5 | 9 Nov | MPC tested as DMC (output-disturbance model) only | It is the common industrial form. Its known limitation is reported [C6] instead of building a second MPC | State-space MPC with an input-disturbance model (future work) |
+| D6 | 9 Nov | RST in SCL uses a structural form that enforces T(1)=R(1) and S(1)=0 | Float32 rounding of the coefficients caused an offset of several bar | Direct-form sums |
+| D7 | 9 Nov | The batch-change event from the line records is an estimator input | Without it, a viscosity change reads as a feed change (RMSE 0.09 → 0.31 kg) | Torque only |
+| D8 | 10 Nov | Superbee TVD transport and front-dependent noise in the EKF | First-order upwind missed SPS-312 by up to 0.62 kg. The state count and the sparsity of F are unchanged | A finer grid (O(n²) cost); a dedicated run-out mode |
+| D9 | 10 Nov | Fix the simulator so an empty screw delivers only the material that exists | The clamp created mass. The truth model must conserve mass at its limits | Leaving it and documenting it |
+| D10 | 10 Nov | Keep the EKF covariance work in one call, made cheaper (symmetric prediction, weighted σ) | 4.39 ms with margin is within budget, and splitting adds latency and complexity | Splitting the update over 5 calls (kept in reserve) |
+| D11 | 10 Nov | Recommend a robust PID + setpoint filter + estimator, and trial FF/RST | Trade study §10 and its assumption tests | Replacing the PID with RST outright |
+| D12 | 10 Nov | PLCSIM, on-target timing and publishing stay open, recorded in `OPEN_ITEMS.md` | They need a Siemens login and licence, the plant's hardware, or the owner's approval | — |
+
+---
+
+## 15. References
 
 The full list, including the source status of each entry, is in `docs/sources/REFERENCES.md`.
 The main entries:

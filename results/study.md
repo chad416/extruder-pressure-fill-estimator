@@ -135,6 +135,12 @@ Run-out (feed stopped, screw still turning). Error = estimate - truth:
 | 20 | 0.20 | 0.02 | 2.90 | 0.01 | 0.00 | -0.23 |
 | 22 | 0.23 | 0.02 | 3.24 | 0.01 | -0.00 | 0.06 |
 
+
+Run-out summary over 12 run-outs (signed error, mean +- 2 std):
+- EKF at the starvation point: +0.013 +- 0.029 kg (max |error| 0.035 kg, SPS-312 threshold 0.5 kg, objective 0.25 kg)
+- EKF at the end of the run-out: +0.000 +- 0.006 kg (max |error| 0.004 kg)
+- Static mass balance at the starvation point: +3.61 +- 0.85 kg
+
 ## 6. PLC cycle budget (CPU 1513-1 PN, OB30 = 100 ms)
 
 | block | Real ops | Real compares | EXP/LN/SQRT | integer/loop | moves | estimate us (datasheet) |

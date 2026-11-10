@@ -4,6 +4,7 @@ This project controls the pressure in front of the outlet pump of a **cold-feed 
 
 - **Read first:** [DOSSIER.md](DOSSIER.md) ([PDF](docs/DOSSIER.pdf)). It covers the need, ConOps, modes, requirements, architecture, interfaces, budgets, M&S, FMEA, trade study and V&V plan.
 - **Numbers:** [results/study.md](results/study.md) and [results/aoa.md](results/aoa.md).
+- **Traceability and open items:** [TRACEABILITY.md](TRACEABILITY.md) and [OPEN_ITEMS.md](OPEN_ITEMS.md).
 - **Data:** everything here is **simulated**. No data from a real line has been used. [DOSSIER §8.2](DOSSIER.md) lists which parameters are sourced and which are assumed.
 
 ![Pressure, disturbances and the screw-fill estimate in one production scenario](docs/img/scenario_timeline.png)
@@ -50,6 +51,7 @@ paired comparisons.
    - **Uncertainty:** the reported ±2σ band holds the truth 99.9 % of the time.
 
    ![Estimator errors](docs/img/estimator_errors.png)
+   ![Run-out errors](docs/img/runout_errors.png)
 
 5. **PLC fit.**
    - **Budget:** 1.46 ms per 100 ms cycle at datasheet instruction times, 4.4 ms with a 3× margin.
@@ -60,7 +62,7 @@ paired comparisons.
      S(1) = 0, in its code structure.
 
 **What is not done:**
-- PLCSIM run;
+- PLCSIM run (S7-PLCSIM is not installed; see OPEN_ITEMS.md);
 - execution time measured on a real CPU;
 - any data from a real line.
 
