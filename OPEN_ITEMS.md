@@ -8,7 +8,7 @@ a licence, or the plant.
 | Item | Why it is blocked | What to do |
 |---|---|---|
 | **S7-PLCSIM run (SPEC V03, DOSSIER §11.2)** | S7-PLCSIM is not installed for any TIA version on this PC (V16, V18, V20). This was checked in Program Files and the Siemens registry on 10 Nov. Factory IO ships only a driver folder for PLCSIM Advanced. Installing PLCSIM needs a Siemens Industry Online Support login and a licence. | Install S7-PLCSIM V18 (same version as TIA). Then: open `C:\TIA_xtrude\xtrude_20261110_024438\xtrude_20261110_024438.ap18`, download to PLCSIM, set `"LineIO".ModeRequest := 2`, feed a pressure signal (for example a watch table), and record a Trace of `"LineIO".SpeedSp`, `"iRST".Out` and `"iEKF".Mass`. |
-| **Publish to GitHub** | Publishing is outward-facing, so it waits for your approval. | Run the commands in §3. |
+| **Publish the companion repo `06_tcu-zone-pid-tuning`** | This repo is public: <https://github.com/chad416/extruder-pressure-fill-estimator>, CI green. The companion repo was checked again on 10 Nov (28/28 tests, scan clean). Its `gh repo create` needs your own confirmation. | Run the second block in §3. |
 
 ## 2. Needs the plant (DOSSIER §12, PLAN §5c)
 
@@ -16,7 +16,10 @@ a licence, or the plant.
 - **On-target timing (VT-07):** the OB30 net execution time from the CPU's cycle statistics. Until then SPS-361 rests on an **estimate**: 1.46 ms per 100 ms cycle from operation counts × datasheet instruction times, 4.39 ms with a 3× margin.
 - **Line trial:** VT-01 … VT-08 and VAL-1.
 
-## 3. Publish commands (run in the morning after review)
+## 3. Publish commands
+
+The first block was run on 10 Nov 2026 (CI run 42764935472, green). Only the second block is
+still open.
 
 **Pre-publish check.** Run on 10 Nov for this repo and for `06_tcu-zone-pid-tuning`, covering
 the working tree and every commit in history. Result: clean.
