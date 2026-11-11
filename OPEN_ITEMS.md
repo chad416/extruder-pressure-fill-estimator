@@ -1,4 +1,4 @@
-# Open items (state on 10 Nov 2026)
+# Open items (state on 11 Nov 2026)
 
 Everything that can be done on this PC without a human is done. What is left needs a person,
 a licence, or the plant.
@@ -7,8 +7,11 @@ a licence, or the plant.
 
 | Item | Why it is blocked | What to do |
 |---|---|---|
-| **S7-PLCSIM run (SPEC V03, DOSSIER §11.2)** | S7-PLCSIM is not installed for any TIA version on this PC (V16, V18, V20). This was checked in Program Files and the Siemens registry on 10 Nov. Factory IO ships only a driver folder for PLCSIM Advanced. Installing PLCSIM needs a Siemens Industry Online Support login and a licence. | Install S7-PLCSIM V18 (same version as TIA). Then: open `C:\TIA_xtrude\xtrude_20261110_024438\xtrude_20261110_024438.ap18`, download to PLCSIM, set `"LineIO".ModeRequest := 2`, feed a pressure signal (for example a watch table), and record a Trace of `"LineIO".SpeedSp`, `"iRST".Out` and `"iEKF".Mass`. |
-| **Publish the companion repo `06_tcu-zone-pid-tuning`** | This repo is public: <https://github.com/chad416/extruder-pressure-fill-estimator>, CI green. The companion repo was checked again on 10 Nov (28/28 tests, scan clean). Its `gh repo create` needs your own confirmation. | Run the second block in §3. |
+| **S7-PLCSIM run (SPEC V03, DOSSIER §11.2)** | S7-PLCSIM is not installed. The S7-PLCSIM V18 SP2 installer is on this PC; its silent install on 11 Nov stopped because Windows has a pending restart (PendingFileRenameOperations), and the PC was not restarted unattended. | Restart Windows, mount `S7-PLCSIM_V18_SP2.iso` and run `Start.exe /qb REBOOT=Suppress INSTALLLANGUAGE=1033 INSTALLLEVEL=Typical` as administrator. Then: open `C:\TIA_xtrude\xtrude_20261110_024438\xtrude_20261110_024438.ap18`, download to PLCSIM, set `"LineIO".ModeRequest := 2`, feed a pressure signal (for example a watch table), and record a Trace of `"LineIO".SpeedSp`, `"iRST".Out` and `"iEKF".Mass`. |
+
+The companion repositories are public with green CI: <https://github.com/chad416/tcu-zone-pid-tuning>
+(topic 1, published 11 Nov, CI run 42936903193) and <https://github.com/chad416/cap-strip-thread-tension>
+(topic 4).
 
 ## 2. Needs the plant (DOSSIER §12, PLAN §5c)
 
@@ -18,8 +21,9 @@ a licence, or the plant.
 
 ## 3. Publish commands
 
-The first block was run on 10 Nov 2026 (CI run 42764935472, green). Only the second block is
-still open.
+Both blocks have been run: this repo on 10 Nov 2026 (CI run 42764935472, green) and the companion
+repo on 11 Nov 2026 (CI run 42936903193, green; its final description and topics differ slightly from
+the block below).
 
 **Pre-publish check.** Run on 10 Nov for this repo and for `06_tcu-zone-pid-tuning`, covering
 the working tree and every commit in history. Result: clean.
