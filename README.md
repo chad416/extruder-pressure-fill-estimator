@@ -3,7 +3,7 @@
 This project controls the pressure in front of the outlet pump of a **cold-feed rubber extruder** using a model, and it estimates **how much compound is left in the screw**. Both run as Siemens **SCL** blocks compiled in TIA Portal V18, and the work is laid out as a systems-engineering dossier that follows Wasson's spine.
 
 - **Read first:** [DOSSIER.md](DOSSIER.md) ([PDF](docs/DOSSIER.pdf)). It covers the need, ConOps, modes, requirements, architecture, interfaces, budgets, M&S, FMEA, trade study and V&V plan.
-- **Numbers:** [results/study.md](results/study.md) and [results/aoa.md](results/aoa.md).
+- **Numbers:** [results/study.md](results/study.md), [results/aoa.md](results/aoa.md) and [results/drift.md](results/drift.md).
 - **Traceability and open items:** [TRACEABILITY.md](TRACEABILITY.md) and [OPEN_ITEMS.md](OPEN_ITEMS.md).
 - **Data:** everything here is **simulated**. No data from a real line has been used. [DOSSIER §8.2](DOSSIER.md) lists which parameters are sourced and which are assumed.
 
@@ -61,7 +61,28 @@ paired comparisons.
      which caused a pressure offset of several bar. The SCL now enforces that identity, and
      S(1) = 0, in its code structure.
 
+6. **A zero drift of the pressure transducer cannot be seen in production, and the fill
+   estimator does not flag it** (FMEA row F3; 12 paired scenarios per case,
+   [results/drift.md](results/drift.md)).
+   - **Consequence:** the loop holds the reading, so the true pressure sits at setpoint minus
+     offset. A +8 bar offset costs 1.3 % of throughput at a 60 bar setpoint and 5.3 % at
+     40 bar, where the assumed gear-pump fill curve is four times steeper.
+   - **Detection:** the EKF explains the shifted reading with a different filled length. Its
+     pressure innovation stays between −0.005 and −0.012 σ at every offset from −8 to +8 bar,
+     the same as with no offset. Only 3 of 144 offset runs pass a threshold set for zero false
+     alarms, fewer than chance would give. Revision B of the dossier named this innovation as
+     the drift flag. That was wrong, and revision C corrects it.
+   - **Side effect:** the offset biases the mass estimate, by +0.12 kg at +8 bar (60 bar
+     setpoint) and +0.44 kg at +8 bar (40 bar setpoint).
+   - **What does work:** a zero check at run-out. Once the screw is empty and the head has
+     drained, the reading is the offset. In 48 simulated run-outs it was read to within
+     0.10 bar, 105–112 s after the feed stopped, with no false capture. It assumes the head
+     really drains to 0 bar, which only the plant can confirm.
+
+   ![Throughput change and pressure innovation against the transducer offset](docs/img/drift_consequence_detection.png)
+
 **What is not done:**
+- the run-out zero check as an SCL block (it exists in Python only);
 - PLCSIM run (S7-PLCSIM is not installed; see OPEN_ITEMS.md);
 - execution time measured on a real CPU;
 - any data from a real line.
@@ -78,12 +99,14 @@ The V&V plan is in [DOSSIER §11](DOSSIER.md).
 | `src/xtrude/control.py` | PID, RST pole placement (Diophantine, observer anti-windup), DMC-type MPC, robustness analysis |
 | `src/xtrude/design.py` | Robust tuning of PID and RST on 10 plant variants under the same constraints |
 | `src/xtrude/estimator.py` | Screw-fill EKF (12 compartments + feed fill + consistency + filled length) and the feedforward speed |
+| `src/xtrude/zero_check.py` | Run-out zero check of the pressure transducer: two first-order filters and a timer, no sample buffer |
 | `src/xtrude/learned.py` | Ridge and MLP estimators on torque/power/rpm (topic-3 literal) and on all signals |
 | `src/xtrude/scl.py` | Translator that runs the SCL in Python with float32 Real and counts operations |
 | `plc/FB_*.scl` | `FB_PressurePID`, `FB_PressureRST`, `FB_FillEKF`, `FB_PressureSupervisor` |
 | `plc/tia/` | OB30 (100 ms), DBs, generated `FC_LoadParams` |
 | `scripts/run_study.py` | Whole study → `results/`, `docs/img/` |
 | `scripts/aoa.py` | Trade study → `results/aoa.md` |
+| `scripts/drift_study.py` | Transducer zero-drift study (FMEA row F3) → `results/drift.md` |
 | `scripts/tia_*.ps1` | TIA Openness build, OB30 conversion, screenshot |
 
 ## Run it
@@ -93,6 +116,7 @@ pip install -e .[test]
 python -m pytest -q                 # plant, control, estimator, SCL equivalence
 python scripts/run_study.py         # about an hour on a laptop; stages are cached
 python scripts/aoa.py
+python scripts/drift_study.py       # about 2 minutes
 ```
 
 ```powershell

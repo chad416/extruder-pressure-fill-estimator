@@ -86,6 +86,9 @@ class Extruder:
         self.eps = eps
         self.feed_on = True
         self.T_barrel = self.p.T_barrel
+        # zero offset of the head-pressure transducer (bar). It shifts the reading only, never
+        # the pressure itself. FMEA row F3 (slow zero drift) is studied by ramping it.
+        self.p_zero_bar = 0.0
         self.rng = np.random.default_rng(seed)
         self.t = 0.0
         # intake coefficient: volume per revolution at eps = 1
@@ -299,7 +302,8 @@ class Extruder:
         tr = self.truth()
         phase = 2 * math.pi * self.N * self.t
         ripple = 0.01 * tr["P_bar"] * math.sin(phase)  # 1 % flight-passing ripple at screw frequency
-        P_m = round((tr["P_bar"] + ripple + r.normal(0, 0.3)) * 10) / 10  # 0.1 bar resolution
+        # 0.1 bar resolution; the zero offset is added before quantisation
+        P_m = round((tr["P_bar"] + ripple + r.normal(0, 0.3) + self.p_zero_bar) * 10) / 10
         tq = tr["torque"] * (1 + 0.005 * math.sin(phase)) + r.normal(0, 0.005 * self.p.torque_rated)
         return {
             "t": tr["t"], "P_bar": P_m, "N_rpm": tr["N_rpm"] + r.normal(0, 0.02),

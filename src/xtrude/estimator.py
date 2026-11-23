@@ -88,6 +88,9 @@ class FillEKF:
         self.Pm = np.diag(np.r_[np.full(c.m, 0.05**2), 0.05**2, (0.3 * th0) ** 2, 0.05**2])
         self.batch_timer = 0.0
         self.N = N
+        # last innovation (torque N m, pressure bar) and its 1-sigma from S; diagnostics only
+        self.innov = np.zeros(2)
+        self.innov_sigma = np.ones(2)
 
     # ------------------------------------------------------------- model pieces
     def eta(self, theta: float, N: float, T: float) -> float:
@@ -246,6 +249,8 @@ class FillEKF:
         y = np.array([meas["torque"], P]) - h(self.x)
         Rm = np.diag([c.r_torque**2, c.r_p**2])
         Sm = H @ self.Pm @ H.T + Rm
+        self.innov = y
+        self.innov_sigma = np.sqrt(np.diag(Sm))
         K = self.Pm @ H.T @ np.linalg.inv(Sm)
         self.x = self.x + K @ y
         self.x[:m + 1] = np.clip(self.x[:m + 1], 0.0, 1.0)

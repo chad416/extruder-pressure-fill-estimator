@@ -5,7 +5,7 @@ I (inspection), A (analysis), D (demonstration) and T (test), following [W] p.27
 table is the requirements verification traceability matrix (RVTM) of DOSSIER §11.1, extended
 with the code and test locations.
 
-| Req. | Need | Implemented in | Verified by | Evidence | Status (10 Nov 2026) |
+| Req. | Need | Implemented in | Verified by | Evidence | Status (23 Nov 2026) |
 |---|---|---|---|---|---|
 | SPS-201 Scrap ≤ baseline | N1 | whole system | T: line trial VAL-1 | — | open (plant) |
 | SPS-202 Start-up waste ≤ baseline | N2 | whole system | T: VAL-1 | — | open (plant) |
@@ -16,7 +16,7 @@ with the code and test locations.
 | SPS-304 4-bar step: ≤ 20 s, overshoot ≤ 1 bar | N2 | RST reference model Bm/Am | A: `run_study.step_metrics` | results/study.md §3 | RST met; PID needs a setpoint filter |
 | SPS-305 Speed ripple ≤ 0.1 rpm, noise ≤ 0.1 rpm | N1, N5 | tuning constraints | A: `design.ripple_amp`, `design.noise_rms` | results/study.md §3 | met (design constraint) |
 | SPS-306 Mode change ≤ 0.2 rpm step | N5 | tracking in all controller FBs | T: `tests/test_scl.py` (Enable = FALSE tracking) | pytest | T met in translator; PLCSIM open |
-| SPS-311 Mass RMSE ≤ 0.3 kg | N4 | `FB_FillEKF`, `xtrude.estimator.FillEKF` | A: Monte Carlo | results/study.md §5 | met (0.093 kg mean, 0.116 kg worst) |
+| SPS-311 Mass RMSE ≤ 0.3 kg | N4 | `FB_FillEKF`, `xtrude.estimator.FillEKF` | A: Monte Carlo | results/study.md §5 | met at a 60 bar setpoint with a zeroed transducer (0.093 kg mean, 0.116 kg worst). With a transducer offset it degrades: 0.41 kg at a 40 bar setpoint and −8 bar offset (results/drift.md §B) |
 | SPS-312 Run-out error ≤ 0.5 kg | N2, N4 | TVD transport in `FB_FillEKF` v0.2 | A: Monte Carlo; T: `test_runout_estimate_at_starvation_point` | results/study.md §5, `docs/img/runout_errors.png` | met (+0.013 ± 0.029 kg, max 0.035 kg) |
 | SPS-313 1-σ reported | N4 | `FB_FillEKF.MassSigma` | I + A: ±2σ coverage | results/study.md §5 coverage line | met (99.9 % in range, 97.7 % out of range) |
 | SPS-321 Pressure fault → SpeedHold in 1 cycle | N5 | `FB_PressureSupervisor` | T: `test_supervisor_fallbacks`, `test_frozen_pressure_detected` | pytest | met in translator; PLCSIM open |
@@ -26,6 +26,12 @@ with the code and test locations.
 | SPS-362 SCL, TIA V18, 0 errors / 0 warnings | constraint | `plc/` | T: TIA Openness compile | results/tia_compile*.txt, docs/img/tia_*.png | met |
 | SPS-363 Existing signals only | constraint | `plc/tia/LineIO_OB_DB.scl` | I | DOSSIER §6 interface table | met |
 | SPS-364 Re-identification ≤ 2 min at ±0.3 rpm | constraint | `xtrude.ident.step_test` | A + D | results/study.md §2 | A met; D open (plant) |
+
+## FMEA rows with their own verification
+
+| FMEA row | Implemented in | Verified by | Evidence | Status (23 Nov 2026) |
+|---|---|---|---|---|
+| F3 Transducer zero drift | `xtrude.zero_check.RunoutZeroCheck` (Python only) | A: `scripts/drift_study.py`; T: `tests/test_drift.py` | results/drift.md, `docs/img/drift_*.png` | Consequence and blindness of the estimator quantified; zero check works in simulation; SCL block and plant question Q5 open |
 
 ## Code-to-requirement index
 

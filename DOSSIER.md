@@ -1,11 +1,18 @@
 ---
 title: "Model-based head-pressure control and screw-fill estimation for a cold-feed rubber extruder"
-subtitle: "Systems engineering dossier (pre-baseline draft, revision B, 10 Nov 2026)"
+subtitle: "Systems engineering dossier (pre-baseline draft, revision C, 23 Nov 2026)"
 ---
 
 # Model-based head-pressure control and screw-fill estimation for a cold-feed rubber extruder
 
-**Systems engineering dossier.** Pre-baseline draft, revision B, 10 Nov 2026.
+**Systems engineering dossier.** Pre-baseline draft, revision C, 23 Nov 2026.
+
+**What revision C changed.**
+- Transducer zero drift (FMEA row F3) is now studied instead of assumed: `scripts/drift_study.py`,
+  `results/drift.md`, summary item 6.
+- The F3 detection claim of revision B (the EKF pressure innovation as the drift flag) was
+  tested and is withdrawn. A run-out zero check replaces it (§9.2, D13).
+- One new meeting question (§12, Q5).
 
 **What revision B changed.**
 - EKF run-out fix (§13).
@@ -22,7 +29,8 @@ The engineering work behind it is in this repository:
 - the extruder model, identification, controllers and estimators in `src/xtrude/`;
 - the PLC code in `plc/`;
 - the study script, `scripts/run_study.py`, which writes `results/study.md`;
-- the trade study, `scripts/aoa.py`, which writes `results/aoa.md`.
+- the trade study, `scripts/aoa.py`, which writes `results/aoa.md`;
+- the transducer drift study, `scripts/drift_study.py`, which writes `results/drift.md`.
 
 Every number in this dossier is reproduced by those scripts. Section 8.2 lists which numbers
 are **sourced** and which are **assumed**. Reading notes on the Wasson chapters used are in
@@ -109,7 +117,24 @@ and paired comparisons. Uncertainties are ±2 standard deviations across runs.
    - They match the Python references in float32.
    - Float32 broke the RST's static-gain identity and caused an offset of several bar. The
      SCL now enforces T(1) = R(1) and S(1) = 0 in its code structure (§9, F10).
-6. **Recommendation (§10.3).**
+6. **A zero drift of the pressure transducer is not visible in production (§9.2, F3;
+   `results/drift.md`).** 12 paired scenarios per case, robust PID, offsets from −8 to +8 bar.
+   - **Consequence:** the loop holds the reading, so the true pressure is the setpoint minus
+     the offset. Throughput follows the gear-pump fill curve: **−1.3 % at +8 bar** with a
+     60 bar setpoint, and **−5.3 % at +8 bar** with a 40 bar setpoint. No run reached the
+     25 bar starvation limit; the lowest true pressure was 26.7 bar (40 bar setpoint, +8 bar).
+   - **Detection:** the EKF pressure innovation does not move. Its run mean is −0.005 to
+     −0.012 σ at every offset, against −0.008 and −0.011 σ with no offset. 3 of 144 offset
+     runs pass a threshold with zero false alarms; chance alone would give about 11. A ramp
+     of 32 bar/h, far faster than a real drift, is not seen either. The filter has two free
+     states in its pressure equation (consistency and filled length), and it uses them.
+   - **Side effect:** the mass estimate shifts by 0.009–0.015 kg per bar at 60 bar and by
+     0.030–0.055 kg per bar at 40 bar. At 40 bar with a −8 bar offset the RMSE is 0.41 kg,
+     outside the SPS-311 threshold of 0.3 kg.
+   - **Mitigation that works in simulation:** a zero check at run-out (`xtrude.zero_check`).
+     It read the offset to within **0.10 bar** in 48 run-outs, 105–112 s after the feed
+     stopped, with no false capture. It depends on the head draining to 0 bar (Q5).
+7. **Recommendation (§10.3).**
    - Build the fill estimator and its early feed-loss warning.
    - Re-identify and robustly retune the existing PID, adding a setpoint filter.
    - Offer the estimator feedforward and the RST as line-trial candidates (VT-04, VT-05).
@@ -448,6 +473,7 @@ written as a *window* requirement and not as a variance requirement.
 | Unknown viscosity of a new batch (no batch event) | RMSE rises from 0.09 to 0.31 kg (§9, F7) |
 | Rheology mismatch (estimator n, b vs truth: 0.25/0.010 vs 0.2226/0.0089) | absorbed by θ in steady state; transient error inside the SPS-311 figure |
 | Gear-pump fill-curve error (+10 % P_fill) | biases the steady-state fill; inside the SPS-311 figure |
+| Transducer zero offset (F3) | shifts the estimate by 0.009–0.015 kg per bar at a 60 bar setpoint and 0.030–0.055 kg per bar at 40 bar (`results/drift.md` §B) |
 | Reduced resolution (12 vs 80 compartments) | with first-order transport it smeared the run-out front (+0.43 kg mean error at the starvation point, rev. A). The TVD transport of rev. B removes most of it (§13). |
 
 ---
@@ -557,7 +583,7 @@ estimates (TBD-7). [W] P34.12 (p.740/770): RMA figures are estimates.
 |---|---|---|---|---|---|---|---|---|---|---|
 | F1 | Pressure transducer (IF-01) | Wire break / channel fault | Pv invalid | Wrong speed → starve or overpressure | AI channel status | SpeedHold + alarm (SPS-321) | 8 | 3 | 1 | 24 |
 | F2 | Pressure transducer | Frozen signal | Loop open | Pressure drifts unseen | No change for 20 s while speed moves | SpeedHold (SPS-321), `test_frozen_pressure_detected` | 8 | 2 | 3 | 48 |
-| F3 | Pressure transducer | Slow zero drift (temperature, diaphragm) | Controlled to a wrong pressure | Gear pump fill shifts; gauge shift ≈ 0.12 %/bar | **Not** by plausibility. Zero check at the start of each campaign (screw empty, at temperature). The EKF pressure innovation trend is the condition-monitoring flag ([W] P-F curve, Fig. 34.25 p.787/817). | Recalibration procedure | 5 | 4 | 6 | **120** |
+| F3 | Pressure transducer | Slow zero drift (temperature, diaphragm) | Controlled to a wrong pressure | Gear pump fill shifts; gauge shift ≈ 0.12 %/bar | **Not in production:** neither plausibility nor the EKF pressure innovation sees it (`results/drift.md` §B; revision B claimed the innovation would). **At run-out:** the zero check reads the offset to within 0.10 bar in simulation (`xtrude.zero_check`, `tests/test_drift.py`), if the head drains to 0 bar (Q5). | Zero check at every run-out with an alarm above 2 bar; recalibration procedure | 5 | 4 | 8 without the zero check, 3 with it | **160 / 60** |
 | F4 | Pressure transducer | Noisy / damaged diaphragm | Speed noise | Gauge noise, drive wear | RMS of innovation > limit | Alarm; PID fallback with lower gain | 4 | 2 | 4 | 32 |
 | F5 | Drive torque (IF-02) | Telegram loss / implausible | Estimator blind | FF wrong | Telegram valid bit, range | FF off → mode 2 (SPS-322) | 4 | 3 | 1 | 12 |
 | F6 | Drive torque | Scaling changed (drive parameter edit) | θ estimate jumps | Mass estimate biased | θ outside the plausible band after transit | Alarm "torque scaling", FF off | 4 | 2 | 5 | 40 |
@@ -575,8 +601,10 @@ identities in its code structure. This is verified by `test_rst_scl_matches_refe
 **Highest RPNs.**
 - **F7 (missing batch event).** Measured mitigation: the EKF error without batch events is
   0.31 kg, against 0.09 kg with them.
-- **F3 (transducer drift).** Mitigation: a calibration procedure, and the EKF innovation
-  trend used for condition-based maintenance.
+- **F3 (transducer drift).** Revision B scored detection at 6 on the assumption that the EKF
+  innovation trend would show a drift. The drift study shows it does not, so detection in
+  production is 8 and the RPN is 160. With the run-out zero check it falls to 60, provided
+  the plant confirms Q5. Until then F3 is the second-highest risk after F7.
 
 ### 9.3 Availability
 
@@ -802,10 +830,11 @@ closed loop. Integration is incremental, one capability at a time ([W] P28.1, p.
 | Q2 | Current PID: structure, settings, cycle time, saturation and anti-windup method | Baseline (VT-03) | Read from the TIA project |
 | Q3 | Signals available: torque in the drive telegram? melt T? gear-pump speed? | SPS-363 | I/O list |
 | Q4 | Is there a batch-change event (production records / barcode at the feed)? | F7, SPS-311 | Production IT |
+| Q5 | At run-out, does the head pressure fall to zero gauge while the gear pump keeps turning, or does compound left in the head hold pressure? | Run-out zero check (F3) | First meeting; one logged run-out settles it |
 | TBD-1/2 | Baseline scrap and start-up waste | SPS-201/202 | Two weeks of production data |
 | TBD-3 | Real disturbance magnitudes (feed, κ spread from mixing-room Mooney data) | §4.4, MOPs marked (P) | Historian + lab data |
 | TBD-4 | Gear-pump volumetric-efficiency curve vs inlet pressure | §7.2 | Pump datasheet |
-| TBD-5 | Transducer model, range, accuracy, noise | IF-01, §7.2 | Data plate / datasheet |
+| TBD-5 | Transducer model, range, accuracy, noise, zero-drift specification, and how often it is zeroed today | IF-01, §7.2, F3 | Data plate / datasheet / maintenance plan |
 | TBD-6 | Melt temperature sensor position and lag | IF-03 | Drawing |
 | TBD-7 | Failure rates and repair times | §9 | Maintenance records |
 | TBD-8 | Compound rheology (n, b, K) for the plant's compounds | §8.2 | Capillary / RPA tests per ASTM D5099 [S9] |
@@ -849,7 +878,14 @@ closed loop. Integration is incremental, one capability at a time ([W] P28.1, p.
   - **What it affected:** only the tails of the run-outs, after starvation. The controller
     numbers in §0 did not change.
 - **Not every disturbance was varied.** The Monte Carlo covers feed, viscosity, line speed and
-  barrel temperature. It does not cover transducer drift (F3) or a change of die or gear pump.
+  barrel temperature. Transducer drift (F3) has its own study since revision C. A change of
+  die or gear pump is still not covered.
+- **The drift study inherits the assumed gear-pump fill curve** (TBD-4). The throughput
+  figures scale with its slope. The finding that the estimator cannot see an offset does not
+  depend on the slope, but it was shown for this estimator structure only.
+- **The run-out zero check exists in Python only.** It is not yet an SCL block and was not
+  compiled in TIA Portal. In the simulator the head drains to 0 bar at run-out; a real head
+  may not (Q5).
 
 ---
 
@@ -872,6 +908,7 @@ the smaller decisions. Each one is recorded here with its reason.
 | D10 | 10 Nov | Keep the EKF covariance work in one call, made cheaper (symmetric prediction, weighted σ) | 4.39 ms with margin is within budget, and splitting adds latency and complexity | Splitting the update over 5 calls (kept in reserve) |
 | D11 | 10 Nov | Recommend a robust PID + setpoint filter + estimator, and trial FF/RST | Trade study §10 and its assumption tests | Replacing the PID with RST outright |
 | D12 | 10 Nov | PLCSIM, on-target timing and publishing stay open, recorded in `OPEN_ITEMS.md` | They need a Siemens login and licence, the plant's hardware, or the owner's approval | — |
+| D13 | 23 Nov | F3 detection moves from the EKF innovation trend to a zero check at run-out | Tested: the innovation does not respond to offsets of ±8 bar or to a 32 bar/h ramp (`results/drift.md`). The empty, drained head is the only moment the true pressure is known without a second sensor | Keeping the untested claim; a second transducer (cost, another failure point); adding the offset as an EKF state (not observable: the same reading is explained by the filled length) |
 
 ---
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0 (23 Nov 2026)
+
+- **Transducer zero-drift study (FMEA row F3):** `scripts/drift_study.py` writes
+  `results/drift.md`, `results/drift.csv` and two figures.
+  - The loop holds the reading, so a +8 bar offset costs 1.3 % of throughput at a 60 bar
+    setpoint and 5.3 % at 40 bar.
+  - The EKF pressure innovation does not respond to offsets of ±8 bar or to a 32 bar/h ramp.
+    The dossier's revision-B claim that it would is withdrawn.
+  - The offset biases the mass estimate by up to 0.44 kg (40 bar setpoint, +8 bar).
+- **Run-out zero check:** `xtrude.zero_check.RunoutZeroCheck` reads the offset when the screw
+  is empty and the head has drained (within 0.10 bar in 48 simulated run-outs). Python only.
+- **Simulator:** the plant has a transducer zero offset (`p_zero_bar`), and scenarios accept
+  `pz` (offset) and `pz_rate` (drift) events. With no offset the results are unchanged.
+- **Estimator:** `FillEKF` exposes its last innovation and innovation σ. The estimate itself
+  is unchanged.
+- **Dossier revision C:** summary item 6, the F3 row and its score, question Q5, decision D13.
+- **Tests:** five new tests in `tests/test_drift.py`.
+
 ## 0.2.0 (10 Nov 2026)
 
 - **EKF (Python and FB_FillEKF v0.2):**

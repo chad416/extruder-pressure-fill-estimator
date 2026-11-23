@@ -1,4 +1,4 @@
-# Open items (state on 11 Nov 2026)
+# Open items (state on 23 Nov 2026)
 
 Everything that can be done on this PC without a human is done. What is left needs a person,
 a licence, or the plant.
@@ -7,7 +7,9 @@ a licence, or the plant.
 
 | Item | Why it is blocked | What to do |
 |---|---|---|
-| **S7-PLCSIM run (SPEC V03, DOSSIER §11.2)** | S7-PLCSIM is not installed. The S7-PLCSIM V18 SP2 installer is on this PC; its silent install on 11 Nov stopped because Windows has a pending restart (PendingFileRenameOperations), and the PC was not restarted unattended. | Restart Windows, mount `S7-PLCSIM_V18_SP2.iso` and run `Start.exe /qb REBOOT=Suppress INSTALLLANGUAGE=1033 INSTALLLEVEL=Typical` as administrator. Then: open `C:\TIA_xtrude\xtrude_20261110_024438\xtrude_20261110_024438.ap18`, download to PLCSIM, set `"LineIO".ModeRequest := 2`, feed a pressure signal (for example a watch table), and record a Trace of `"LineIO".SpeedSp`, `"iRST".Out` and `"iEKF".Mass`. |
+| **S7-PLCSIM run (SPEC V03, DOSSIER §11.2)** | S7-PLCSIM is not installed. The S7-PLCSIM V18 SP2 installer is on this PC; its silent install on 11 Nov stopped because Windows had a pending restart (PendingFileRenameOperations). Checked again on 23 Nov: the PC was restarted on 21 Nov, but pending file operations are queued again and the install needs an administrator session. | Restart Windows, then in an administrator session mount `S7-PLCSIM_V18_SP2.iso` and run `Start.exe /qb REBOOT=Suppress INSTALLLANGUAGE=1033 INSTALLLEVEL=Typical` as administrator. Then: open `C:\TIA_xtrude\xtrude_20261110_024438\xtrude_20261110_024438.ap18`, download to PLCSIM, set `"LineIO".ModeRequest := 2`, feed a pressure signal (for example a watch table), and record a Trace of `"LineIO".SpeedSp`, `"iRST".Out` and `"iEKF".Mass`. |
+
+| **Run-out zero check as an SCL block** | `xtrude.zero_check` (v0.3.0) is Python only. It needs an `FB_ZeroCheck`, a translator test and a TIA compile before the statement that all blocks compile covers it. | Port it (two first-order filters and a timer), add it to `tests/test_scl.py`, and re-run `scripts/tia_build.ps1`. |
 
 The companion repositories are public with green CI: <https://github.com/chad416/tcu-zone-pid-tuning>
 (topic 1, published 11 Nov, CI run 42936903193) and <https://github.com/chad416/cap-strip-thread-tension>
@@ -15,7 +17,8 @@ The companion repositories are public with green CI: <https://github.com/chad416
 
 ## 2. Needs the plant (DOSSIER §12, PLAN §5c)
 
-- **Q1–Q8:** outlet type, current PID settings, signals, batch event, compounds, transducer, weighed purges, historian data.
+- **Q1–Q4 and the TBD register (DOSSIER §12):** outlet type, current PID settings, signals, batch event, compounds, transducer, weighed purges, historian data.
+- **Q5 (new in v0.3.0):** does the head drain to 0 bar at run-out? The run-out zero check depends on it.
 - **On-target timing (VT-07):** the OB30 net execution time from the CPU's cycle statistics. Until then SPS-361 rests on an **estimate**: 1.46 ms per 100 ms cycle from operation counts × datasheet instruction times, 4.39 ms with a 3× margin.
 - **Line trial:** VT-01 … VT-08 and VAL-1.
 

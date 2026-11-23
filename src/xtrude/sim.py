@@ -24,7 +24,9 @@ from .plant import Extruder, nominal
 @dataclass
 class Event:
     t: float
-    kind: str  # "eps" | "kappa" | "gp" | "Tb" | "feed_off" | "sp"
+    # "eps" | "kappa" | "gp" | "Tb" | "feed_off" | "sp" | "pz" (transducer zero offset, bar)
+    # | "pz_rate" (transducer zero drift, bar per hour)
+    kind: str
     value: float = 0.0
 
 
@@ -86,6 +88,7 @@ def run(scn: Scenario, controller, *, P_sp: float = 60.0, plant: Extruder | None
     ff_ref = None
     batch_flag = False
     m_mb = float("nan")
+    pz_rate = 0.0  # bar per hour
     for k in range(n):
         t = k * TS
         while ev and ev[0].t <= t:
@@ -103,6 +106,11 @@ def run(scn: Scenario, controller, *, P_sp: float = 60.0, plant: Extruder | None
                 e.feed_on = False
             elif x.kind == "sp":
                 P_sp = x.value
+            elif x.kind == "pz":
+                e.p_zero_bar = x.value
+            elif x.kind == "pz_rate":
+                pz_rate = x.value
+        e.p_zero_bar += pz_rate * TS / 3600.0
         meas = e.measure()
         u_ff = 0.0
         if ekf is not None and k % every_ekf == 0:
@@ -121,13 +129,16 @@ def run(scn: Scenario, controller, *, P_sp: float = 60.0, plant: Extruder | None
             tr = e.truth()
             if ekf is not None:
                 m_hat, m_sig = ekf.mass(), ekf.mass_sigma()
+                nu_tq, nu_p = ekf.innov / ekf.innov_sigma
             else:
                 m_hat, m_sig = float("nan"), float("nan")
+                nu_tq, nu_p = float("nan"), float("nan")
             m_mb = static_mass_balance(e, meas["N_rpm"], meas["P_bar"], e.N_gp_rel)
             q_ref = e.q_gp_design * e.N_gp_rel
             log.add(t=t, P=tr["P_bar"], P_meas=meas["P_bar"], u=u, N=tr["N_rpm"], T=tr["T"],
                     M=tr["M"], M_hat=m_hat, M_sig=m_sig, M_mb=m_mb, torque=meas["torque"],
                     power=meas["power"], Q_out=tr["Q_out"], Q_rel=tr["Q_out"] / q_ref,
                     kappa_tip=tr["kappa_tip"], eps=e.eps, feed=float(e.feed_on),
-                    gp=e.N_gp_rel / gp_rel0, P_sp=P_sp, T_meas=meas["T"], u_ff=u_ff)
+                    gp=e.N_gp_rel / gp_rel0, P_sp=P_sp, T_meas=meas["T"], u_ff=u_ff,
+                    P_zero=e.p_zero_bar, nu_tq=nu_tq, nu_p=nu_p)
     return log
