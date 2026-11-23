@@ -1,11 +1,17 @@
 ---
 title: "Model-based head-pressure control and screw-fill estimation for a cold-feed rubber extruder"
-subtitle: "Systems engineering dossier (pre-baseline draft, revision C, 23 Nov 2026)"
+subtitle: "Systems engineering dossier (pre-baseline draft, revision D, 23 Nov 2026)"
 ---
 
 # Model-based head-pressure control and screw-fill estimation for a cold-feed rubber extruder
 
-**Systems engineering dossier.** Pre-baseline draft, revision C, 23 Nov 2026.
+**Systems engineering dossier.** Pre-baseline draft, revision D, 23 Nov 2026.
+
+**What revision D changed.**
+- A second plant case: a batch-fed twin-screw unit with a roller die, as a public thesis
+  describes it [T1]. Model `src/xtrude/tsrd.py`, study `scripts/tsrd_study.py`,
+  `results/tsrd.md`, summary item 8 and §8.5.
+- Two new meeting questions (§12, Q6 and Q7) and decisions D14 and D15.
 
 **What revision C changed.**
 - Transducer zero drift (FMEA row F3) is now studied instead of assumed: `scripts/drift_study.py`,
@@ -30,7 +36,8 @@ The engineering work behind it is in this repository:
 - the PLC code in `plc/`;
 - the study script, `scripts/run_study.py`, which writes `results/study.md`;
 - the trade study, `scripts/aoa.py`, which writes `results/aoa.md`;
-- the transducer drift study, `scripts/drift_study.py`, which writes `results/drift.md`.
+- the transducer drift study, `scripts/drift_study.py`, which writes `results/drift.md`;
+- the second plant case, `scripts/tsrd_study.py`, which writes `results/tsrd.md`.
 
 Every number in this dossier is reproduced by those scripts. Section 8.2 lists which numbers
 are **sourced** and which are **assumed**. Reading notes on the Wasson chapters used are in
@@ -140,6 +147,16 @@ and paired comparisons. Uncertainties are ±2 standard deviations across runs.
    - Offer the estimator feedforward and the RST as line-trial candidates (VT-04, VT-05).
    - The line trial, not this model, decides whether the RST's margin and wear advantages are
      worth its maintenance cost.
+8. **Second plant case (§8.5): a batch-fed twin-screw unit with a roller die.** All
+   parameters assumed; 8 seeds per case; setpoint 20 bar.
+   - A plain PI start-up peaks at 25.6–27.3 bar and settles in 12–13 s. The overshoot comes
+     from the controller's starting value at the pressure jump, not from the loop gain.
+   - A recipe table of two numbers read from one earlier log (steady speed, revolutions to
+     full) brings it to 20.8–21.3 bar and 3–4 s. Gain scheduling from the same log did not help.
+   - When the mixer is late the plain PI surges (worst peaks 56–96 bar). Holding the PI
+     while the screws are short, with a feedforward from a material balance, gives 30–45 bar.
+   - The material balance drifts with the throughput calibration (−31 kg after eight
+     batches at 2 %). It needs a reference once per batch (Q6).
 
 ---
 
@@ -557,6 +574,61 @@ DC gains range from 6.7 (at 40 bar) to 110 (at 80 bar) bar/rpm. The operating pr
 the gear-pump fill curve. Viscosity hardly matters (27.5 bar/rpm at κ = 0.7, 1.0 and 1.3),
 because a stiffer batch heats more and thins itself.
 
+### 8.5 Second plant case: batch-fed twin-screw unit with a roller die
+
+**Why it exists.** Q1 (§12) asks what the pressure sits in front of. A public thesis on
+this control problem [T1] describes a machine that is neither of the two cases of §8.3:
+- whole batches drop from an internal mixer into a hopper above twin screws;
+- the screws push the compound through a roller die, and the pressure in front of the
+  rolls is the controlled variable;
+- the actuator is the screw-drive frequency converter, the controller a PI in a Siemens
+  PID_Compact block on an S7-1500, logged at 1 s;
+- a start-up fills the unit at a fixed speed and hands over to the PI at a pressure
+  threshold;
+- step tests on the line are not possible; identification is by least squares (ARX) on
+  ordinary logs;
+- the thesis reports that the pressure rises in jumps, that the batch feed sometimes
+  leaves the screws short, and that settling depends strongly on the recipe.
+
+**The model** (`src/xtrude/tsrd.py`) has the structure that produces those three effects,
+and nothing more:
+- a hopper whose level sets how much the screws take per revolution;
+- a conveying register for the screws (positive displacement, no pressure build-up);
+- a chamber that carries no pressure until it is full, then a stiff compressible volume;
+- a roller-die nip from the lubrication approximation [S2]: a drag term set by the roll
+  speed plus a term linear in pressure over viscosity.
+
+Mass is conserved to 1e-6 kg through fill, pressure and run-out (`tests/test_tsrd.py`).
+**Every parameter is assumed.** The model was not fitted to any log.
+
+**What it shows** (`results/tsrd.md`, 8 seeds per case, setpoint 20 bar):
+
+| Question | Result |
+|---|---|
+| Plant gain against recipe viscosity factor 0.7 / 1.0 / 1.4 | 4.0 / 5.8 / 8.1 bar/rpm; 63 % time 2.1 / 2.7 / 3.5 s |
+| Plain PI start-up | Peak 25.6–27.3 bar, settling 12–13 s |
+| PI, integrator started at the remembered steady speed | Peak 23.1–23.7 bar, settling 8 s |
+| The same, plus speed lowered at the remembered revolutions to full | Peak 20.8–21.3 bar, settling 3–4 s; ISE not better in every case |
+| PI gain scheduled from an ARX fit of one logged start-up | No gain: the fit sees 0.78–1.26 of a true 0.70–1.40, and the stiffest recipe got worse |
+| Production with a thin hopper reserve, plain PI | Worst peaks 56–96 bar, 14–17 % of the time outside ±10 % |
+| The same, feedforward from a material balance and PI held while short | Worst peaks 30–45 bar, 3–6 %; with errors in the balance 8–11 % |
+| Screw content: conveying register / torque alone | 0.2 kg (3.9 kg with parameter errors) / 10 kg |
+| Total content from the mass balance, 2 % throughput calibration error | −31 kg after eight batches; time to empty called 15 s early |
+
+**Reading.**
+- The start-up overshoot comes from the controller's starting value at the pressure jump,
+  not from the loop gain. That is why two remembered numbers per recipe help and gain
+  scheduling does not.
+- A starvation is a second start-up with the integrator in the wrong place. Holding the PI
+  while the screws are short matters more than the feedforward itself.
+- The mass balance alone is not a remaining-material measurement. It needs a reference once
+  per batch; the model has none for the hopper (Q6).
+
+**What this case does not change.** The recommendation of §10.3 stays: keep the PI, tune it
+robustly, and add what is cheap to maintain. Here that is a recipe table of two numbers,
+which fits the existing block (start value of the integral part, a speed step in the
+sequence), not a new controller.
+
 ---
 
 ## 9. Reliability, failure modes and the FMEA  ([W] ch. 34)
@@ -831,6 +903,8 @@ closed loop. Integration is incremental, one capability at a time ([W] P28.1, p.
 | Q3 | Signals available: torque in the drive telegram? melt T? gear-pump speed? | SPS-363 | I/O list |
 | Q4 | Is there a batch-change event (production records / barcode at the feed)? | F7, SPS-311 | Production IT |
 | Q5 | At run-out, does the head pressure fall to zero gauge while the gear pump keeps turning, or does compound left in the head hold pressure? | Run-out zero check (F3) | First meeting; one logged run-out settles it |
+| Q6 | Batch-fed unit: is there any signal for the hopper content (level switch, weight), and is the throughput after the rolls measured (sheet weight, belt scale)? | Remaining material, feedforward (§8.5) | First meeting; I/O list |
+| Q7 | Batch-fed unit: which values does the start-up sequence use today (filling speed, pressure threshold), and are controller values stored per recipe? | Recipe table (§8.5) | Read from the PLC project |
 | TBD-1/2 | Baseline scrap and start-up waste | SPS-201/202 | Two weeks of production data |
 | TBD-3 | Real disturbance magnitudes (feed, κ spread from mixing-room Mooney data) | §4.4, MOPs marked (P) | Historian + lab data |
 | TBD-4 | Gear-pump volumetric-efficiency curve vs inlet pressure | §7.2 | Pump datasheet |
@@ -887,6 +961,14 @@ closed loop. Integration is incremental, one capability at a time ([W] P28.1, p.
   compiled in TIA Portal. In the simulator the head drains to 0 bar at run-out; a real head
   may not (Q5).
 
+- **The batch-fed unit (§8.5) is a structural model.** Its parameters are assumed, it was
+  not fitted to any log, and it has no thermal part, no wear and no over-pressure trip.
+  Its numbers show which effects exist and how they rank, not their size on a real unit.
+  The intake curve of the screws against the hopper content is the assumption the
+  starvation results depend on most.
+- **Nothing for the batch-fed unit exists as SCL.** The recipe table and the hold are
+  simulated in Python only.
+
 ---
 
 ## 14. Decision log
@@ -909,6 +991,8 @@ the smaller decisions. Each one is recorded here with its reason.
 | D11 | 10 Nov | Recommend a robust PID + setpoint filter + estimator, and trial FF/RST | Trade study §10 and its assumption tests | Replacing the PID with RST outright |
 | D12 | 10 Nov | PLCSIM, on-target timing and publishing stay open, recorded in `OPEN_ITEMS.md` | They need a Siemens login and licence, the plant's hardware, or the owner's approval | — |
 | D13 | 23 Nov | F3 detection moves from the EKF innovation trend to a zero check at run-out | Tested: the innovation does not respond to offsets of ±8 bar or to a 32 bar/h ramp (`results/drift.md`). The empty, drained head is the only moment the true pressure is known without a second sensor | Keeping the untested claim; a second transducer (cost, another failure point); adding the offset as an EKF state (not observable: the same reading is explained by the filled length) |
+| D14 | 23 Nov | Add the batch-fed twin-screw roller-die unit as a second plant case, as a structural model with assumed parameters | A public thesis [T1] describes this machine for the same control problem. A structural model shows which effects exist before any data is available | Fitting the thesis figures (they are normalised); a flow simulation of the screws |
+| D15 | 23 Nov | For that unit: keep the PI and add a recipe table (integrator start value, revolutions to full) and a hold while the screws are short; no gain scheduling | Peak 26–27 → 21 bar and settling 12 → 3–4 s with two numbers per recipe; the scheduled gain made the stiffest recipe worse (`results/tsrd.md`) | Gain scheduling from an ARX fit; a new controller structure |
 
 ---
 
@@ -921,6 +1005,7 @@ The main entries:
 - **[S1]** C. Rauwendaal, *Polymer Extrusion*, 5th ed., Hanser, 2014.
 - **[S2]** Z. Tadmor, C. G. Gogos, *Principles of Polymer Processing*, 2nd ed., Wiley, 2006.
 - **[S3]** J. L. White, *Rubber Processing*, Hanser, 1995.
+- **[T1]** J. Mikula, *PID regulace tlaku kaučukové směsi na výstupu dvojšnekového homogenizátoru*, bachelor thesis, Tomas Bata University in Zlín, 2025.
 - **[S4]** Brzoskowski et al., *Int. Polym. Process.* 2 (1987), doi:10.1515/ipp-1987-0004.
 - **[S5]** Vendor data, 150 mm cold-feed extruder class.
 - **[S6]** KGK, energy in rubber extrusion.

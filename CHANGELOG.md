@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0 (23 Nov 2026)
+
+- **Second plant case:** `xtrude.tsrd` models a batch-fed twin-screw unit with a roller die
+  (hopper, conveying screws, chamber, roller-die nip), the machine a public thesis describes
+  for this control problem [T1]. Structural model, every parameter assumed.
+- **Start-up, starvation and remaining material:** `xtrude.tsrd_sim` and
+  `scripts/tsrd_study.py` write `results/tsrd.md`, `results/tsrd_startup.csv` and three figures.
+  - A recipe table of two numbers from one earlier log (steady speed, revolutions to full)
+    takes the start-up peak from 25.6–27.3 to 20.8–21.3 bar and the settling from 12–13 to 3–4 s.
+  - Gain scheduling from an ARX fit of the same log did not help and made the stiffest recipe worse.
+  - With a late mixer the plain PI surges (worst peaks 56–96 bar). A hold while the screws are
+    short, with a feedforward from a material balance, gives 30–45 bar.
+  - The material balance drifts with the throughput calibration (−31 kg after eight batches
+    at 2 %); the screw register does not (3.9 kg).
+- **Dossier revision D:** summary item 8, §8.5, questions Q6 and Q7, decisions D14 and D15.
+- **Tests:** nine new tests in `tests/test_tsrd.py`.
+
 ## 0.3.0 (23 Nov 2026)
 
 - **Transducer zero-drift study (FMEA row F3):** `scripts/drift_study.py` writes

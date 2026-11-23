@@ -43,4 +43,5 @@ with the code and test locations.
 | `plc/FB_PressureSupervisor.scl` | SPS-203, SPS-306, SPS-321…323 |
 | `plc/tia/*` | SPS-361…363 |
 | `src/xtrude/design.py` | SPS-302, 303, 305 |
+| `src/xtrude/tsrd.py`, `src/xtrude/tsrd_sim.py` | None yet: second plant case (DOSSIER §8.5), outside the SPS until Q1 is answered |
 | `src/xtrude/ident.py` | SPS-364 |

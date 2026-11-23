@@ -18,6 +18,7 @@ The companion repositories are public with green CI: <https://github.com/chad416
 ## 2. Needs the plant (DOSSIER §12, PLAN §5c)
 
 - **Q1–Q4 and the TBD register (DOSSIER §12):** outlet type, current PID settings, signals, batch event, compounds, transducer, weighed purges, historian data.
+- **Q6 and Q7 (new in v0.4.0, batch-fed unit):** is there a signal for the hopper content and a throughput measurement after the rolls; which values does the start-up sequence use, and are controller values stored per recipe? Until Q1 is answered the batch-fed unit stays a structural model with assumed parameters and no SCL.
 - **Q5 (new in v0.3.0):** does the head drain to 0 bar at run-out? The run-out zero check depends on it.
 - **On-target timing (VT-07):** the OB30 net execution time from the CPU's cycle statistics. Until then SPS-361 rests on an **estimate**: 1.46 ms per 100 ms cycle from operation counts × datasheet instruction times, 4.39 ms with a 3× margin.
 - **Line trial:** VT-01 … VT-08 and VAL-1.

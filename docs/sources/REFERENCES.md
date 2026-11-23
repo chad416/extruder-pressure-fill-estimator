@@ -22,6 +22,8 @@ Every value or relation in the repo is tagged with one of these source states:
   **[std]**
   - Sec. 6.3: the single-screw pump with the flat-plate model, the shape factors Fd and Fp, and power.
   - Ch. 9: starve-fed and partially filled screws.
+  - Sec. 6.4: flow between two rolls in the lubrication approximation (used for the
+    roller-die nip of `tsrd.py`).
 - **[S3]** J. L. White, *Rubber Processing: Technology, Materials, and Principles*, Hanser, 1995.
   **[std]** Covers the background on cold-feed rubber extruders and on wall slip in rubber compounds.
   No numbers are taken from it.
@@ -54,6 +56,18 @@ Every value or relation in the repo is tagged with one of these source states:
 - **[S9]** ASTM D5099, *Standard Test Methods for Rubber: Measurement of Processing Properties Using
   Capillary Rheometry*. **[abstract]** (title and scope only). It is the route to measure the plant
   compound's power-law constants.
+
+## Plant case from a public thesis
+
+- **[T1]** J. Mikula, *PID regulace tlaku kaučukové směsi na výstupu dvojšnekového
+  homogenizátoru* (PID control of the rubber-compound pressure at the outlet of a twin-screw
+  homogeniser), bachelor thesis, Tomas Bata University in Zlín, Faculty of Applied
+  Informatics, 2025. <https://digilib.k.utb.cz/handle/10563/57086> **[read in full]**
+  - Used for the structure of the second plant case only: batch feed from a mixer, twin
+    screws, roller die, PI in PID_Compact on an S7-1500, filling at fixed speed and
+    hand-over at a pressure threshold, 1 s logs, ARX identification without test signals,
+    the ±10 % settling time and ISE as metrics.
+  - Its measured values are normalised. No number of `tsrd.py` comes from it.
 
 ## Control and estimation
 
