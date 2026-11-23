@@ -616,18 +616,20 @@ Mass is conserved to 1e-6 kg through fill, pressure and run-out (`tests/test_tsr
 | Total content from the mass balance, 2 % throughput calibration error | −31 kg after eight batches; time to empty called 15 s early |
 
 **Reading.**
-- The start-up overshoot comes from the controller's starting value at the pressure jump,
-  not from the loop gain. That is why two remembered numbers per recipe help and gain
-  scheduling does not.
-- A starvation is a second start-up with the integrator in the wrong place. Holding the PI
-  while the screws are short matters more than the feedforward itself.
-- The mass balance alone is not a remaining-material measurement. It needs a reference once
-  per batch; the model has none for the hopper (Q6).
+- The size of the start-up overshoot is set by where the controller output stands when the
+  pressure jumps. The two remembered numbers change that. A scheduled gain leaves it as it
+  was, which is the likely reason it did not help.
+- After a starvation the PI has run the speed up, and the pressure surges when material
+  returns. The study tested the hold and the feedforward only together, so how much each
+  of them contributes is not known.
+- The mass balance drifts, so on its own it does not give the remaining material. It needs
+  a reference once per batch, and the model has none for the hopper (Q6).
 
 **What this case does not change.** The recommendation of §10.3 stays: keep the PI, tune it
-robustly, and add what is cheap to maintain. Here that is a recipe table of two numbers,
-which fits the existing block (start value of the integral part, a speed step in the
-sequence), not a new controller.
+robustly, and add what is cheap to maintain. Here that is a recipe table of two numbers.
+PID_Compact has a setting that pre-assigns the integral part on the change to automatic
+mode, so the table may fit the existing block. Which block version and setting the plant
+uses is part of Q7, and it was not tried in TIA Portal here.
 
 ---
 

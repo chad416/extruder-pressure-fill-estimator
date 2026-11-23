@@ -88,7 +88,7 @@ paired comparisons.
    and a PI controller (Siemens PID_Compact) holds the pressure by the screw speed after a
    filling phase at fixed speed. `src/xtrude/tsrd.py` is a structural model of such a unit.
    Every parameter in it is assumed. Numbers: [results/tsrd.md](results/tsrd.md), 8 seeds.
-   - **The start-up overshoot is a starting-value problem, not a loop-gain problem.** The
+   - **Plain PI start-up.** The
      pressure jumps when the chamber becomes full while the controller is still at the
      filling speed. A plain PI peaks at 25.6–27.3 bar on a 20 bar setpoint and settles in
      12–13 s.
@@ -102,7 +102,7 @@ paired comparisons.
      recipe viscosity (4.0–8.1 bar/rpm), but a first-order fit on one logged start-up sees
      only part of that spread (0.78–1.26 instead of 0.70–1.40), and the stiffest recipe got
      worse (peak 29.2 bar, settling 15 s).
-   - **When the mixer is late, the plain PI repeats the start-up.** With a thin hopper reserve
+   - **Late mixer.** With a thin hopper reserve
      the screws run short, the PI raises the speed, and the pressure surges when material
      arrives: worst peaks of 56–96 bar, 14–17 % of the time outside ±10 %. (The model has no
      over-pressure trip; a real unit would stop first.) A feedforward from a material
